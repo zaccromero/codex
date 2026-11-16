@@ -53,3 +53,19 @@ test('desktop version changes require revalidation', t => {
   const { file } = fixture(t);
   assert.throws(() => activateSelection(file, 'new-desktop-version'), /revalidated/);
 });
+test('embedded runtime resolves relative to a relocated app manifest', t => {
+  const { dir, file, manifest } = fixture(t);
+  fs.mkdirSync(path.join(dir, 'drako-runtime'));
+  fs.renameSync(path.join(dir, 'bin'), path.join(dir, 'drako-runtime/bin'));
+  delete manifest.packageRoot;
+  manifest.packageRootRelative = 'drako-runtime';
+  fs.writeFileSync(file, JSON.stringify(manifest));
+  assert.equal(selectRuntime(file).executable, path.join(dir, 'drako-runtime/bin/codex'));
+});
+test('relative manifest cannot escape its resources directory', t => {
+  const { file, manifest } = fixture(t);
+  delete manifest.packageRoot;
+  manifest.packageRootRelative = '../other-runtime';
+  fs.writeFileSync(file, JSON.stringify(manifest));
+  assert.throws(() => selectRuntime(file), /Unsupported/);
+});

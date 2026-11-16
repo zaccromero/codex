@@ -18,11 +18,28 @@ try {
   for (const inherited of [undefined, '/stale/bundled/codex']) {
     if (inherited === undefined) delete process.env.CODEX_CLI_PATH;
     else process.env.CODEX_CLI_PATH = inherited;
-    const context = { process: { resourcesPath: path.join(receipt.candidateApp, 'Contents/Resources') },
-      require: id => id === 'node:os' ? { homedir: () => home } :
-        id === 'electron' ? { app: { getVersion: () => receipt.sourceVersion } } : require(id) };
+    const resources = path.join(receipt.candidateApp, 'Contents/Resources');
+    const mockProcess = { resourcesPath: resources, env: process.env };
+    const appPaths = {};
+    function load(id) {
+      if (id === 'node:os') return { homedir: () => home };
+      if (id === 'electron') return { app: { getVersion: () => receipt.sourceVersion,
+        setPath: (name, value) => { appPaths[name] = value; } } };
+      if (id === path.join(resources, 'drako-independent-bootstrap.cjs')) {
+        vm.runInNewContext(fs.readFileSync(id, 'utf8'), { process: mockProcess, require: load });
+        return {};
+      }
+      return require(id);
+    }
+    const context = { process: mockProcess, require: load };
     vm.runInNewContext(prefix, context);
-    assert.equal(process.env.CODEX_CLI_PATH, path.join(receipt.runtime.packageRoot, 'bin/codex'));
+    const runtimeRoot = receipt.independent ? path.join(resources, 'drako-runtime') : receipt.runtime.packageRoot;
+    assert.equal(process.env.CODEX_CLI_PATH, path.join(runtimeRoot, 'bin/codex'));
+    if (receipt.independent) {
+      assert.equal(process.env.CODEX_HOME, path.join(home, 'Library/Application Support/DrakoCodex/codex-home'));
+      assert.equal(appPaths.userData, path.join(home, 'Library/Application Support/DrakoCodex/desktop-profile'));
+      assert.equal(process.env.CODEX_SPARKLE_ENABLED, 'false');
+    }
     const version = cp.execFileSync(process.env.CODEX_CLI_PATH, ['--version'], { encoding: 'utf8' }).trim();
     assert.match(version, /^codex-cli /);
     console.log(JSON.stringify({ inherited: inherited ?? null, selected: process.env.CODEX_CLI_PATH, version }));

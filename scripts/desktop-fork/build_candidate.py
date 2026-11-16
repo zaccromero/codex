@@ -79,6 +79,7 @@ def main():
     parser.add_argument('--source-app', type=Path, required=True)
     parser.add_argument('--runtime-package', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--independent', action='store_true', help='Separate identity/profile with an embedded fork runtime')
     args = parser.parse_args()
     source = args.source_app.resolve(strict=True)
     output = args.output.resolve()
@@ -94,28 +95,51 @@ def main():
         raise ValueError('Source application ASAR header does not match Info.plist')
     manifest = manifest_for(args.runtime_package)
     manifest['desktopVersion'] = info['CFBundleShortVersionString']
+    source_runtime = json.loads(json.dumps(manifest))
     # Selection occurs in the earliest entry, before vendor code creates a backend.
     prefix = (b'/* Drako persistent fork runtime selection v1 */\n'
               b'require(require("node:path").join(process.resourcesPath,"drako-runtime-selector.cjs"))'
               b'.activateSelection(require("node:path").join(require("node:os").homedir(),'
               b'"Library/Application Support/DrakoCodex/runtime.json"),require("electron").app.getVersion());\n')
+    if args.independent:
+        prefix = (b'/* Drako persistent fork runtime selection v1 */\n'
+                  b'require(require("node:path").join(process.resourcesPath,"drako-independent-bootstrap.cjs"));\n')
     patched, header_hash, main_entry = patch_archive(archive, prefix)
     output.mkdir(parents=True)
-    candidate = output / 'ChatGPT.app'
+    candidate = output / ('Drako Codex.app' if args.independent else 'ChatGPT.app')
     shutil.copytree(source, candidate, symlinks=True)
     resources = candidate / 'Contents/Resources'
     (resources / 'app.asar').write_bytes(patched)
     shutil.copy2(Path(__file__).with_name('runtime-selector.cjs'), resources / 'drako-runtime-selector.cjs')
+    if args.independent:
+        shutil.copy2(Path(__file__).with_name('independent-bootstrap.cjs'), resources / 'drako-independent-bootstrap.cjs')
+        shutil.copytree(args.runtime_package, resources / 'drako-runtime', symlinks=True)
+        del manifest['packageRoot']
+        manifest['packageRootRelative'] = 'drako-runtime'
+        info['CFBundleIdentifier'] = 'ai.drako.codex.desktop'
+        info['CFBundleName'] = 'Drako Codex'
+        info['CFBundleDisplayName'] = 'Drako Codex'
+        # Do not register competing vendor URL schemes, document handlers or
+        # vendor privileged helpers for a separate local application.
+        for key in ('CFBundleURLTypes', 'CFBundleDocumentTypes', 'SMPrivilegedExecutables',
+                    'SUFeedURL', 'SUPublicEDKey'):
+            info.pop(key, None)
+        for profile in candidate.rglob('embedded.provisionprofile'):
+            profile.unlink()
     info['ElectronAsarIntegrity']['Resources/app.asar']['hash'] = header_hash
     (candidate / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     manifest_file = output / 'runtime.json'
     manifest_file.write_text(json.dumps(manifest, indent=2) + '\n')
     manifest_file.chmod(0o600)
+    if args.independent:
+        shutil.copy2(manifest_file, resources / 'drako-runtime.json')
     receipt = {'status': 'staged-not-signed-not-installed', 'sourceApp': str(source),
                'sourceVersion': info['CFBundleShortVersionString'],
                'sourceArchiveSha256': sha(archive), 'candidateArchiveSha256': sha(patched),
                'mainEntry': main_entry, 'candidateApp': str(candidate),
                'manifest': str(manifest_file), 'runtime': manifest,
+               'sourceRuntime': source_runtime,
+               'independent': args.independent,
                'launchPerformed': False, 'liveActivationVerified': False}
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     print(json.dumps(receipt, indent=2))

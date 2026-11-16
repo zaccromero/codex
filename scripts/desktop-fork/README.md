@@ -7,22 +7,35 @@ app is not changed or launched. Vendor app bytes are never committed.
 
 ## Current state
 
-Source implemented; candidate staged; isolated tests available. **Not signed,
-not installed, and desktop login/restore persistence is not verified.** The
-runtime itself is independently installed. A running executor was verified against
-the fork SHA-256, with successful ordinary directory deletion and denial of
-synthetic `.env.local` creation. That does not prove this candidate is active.
+The owner selected an independent desktop identity with fresh sign-in. The
+independent build is named **Drako Codex**, bundle ID `ai.drako.codex.desktop`.
+It embeds the complete fork runtime and uses an app-relative manifest, so copying
+or restoring this app does not require a login launcher or environment override.
 
-The installed desktop has OpenAI team-specific entitlements for shared keychain,
-notifications, associated domains and application groups. An ad-hoc signature
-cannot preserve that developer identity. We do not strip entitlements, disable
-Gatekeeper, re-sign the app, or substitute this candidate into a running app.
-Those compatibility and signing requirements remain an actual deployment blocker.
+The independent candidate is ad-hoc signed and locally signature-verified. It is
+not notarized, not installed, and not launched. Actual desktop sign-in, UI,
+notifications, computer use and macOS restoration remain unverified. The older
+vendor-identity candidate is preserved as an unsigned investigation artifact;
+it must not be installed as a replacement for ChatGPT.
+
+No OpenAI signing identity, shared keychain groups, app groups or provisioning
+profiles are claimed by the independent signature. It uses fresh state under
+`~/Library/Application Support/DrakoCodex/{desktop-profile,codex-home}`. Existing
+ChatGPT credentials, chats, preferences and running processes are untouched.
+Vendor URL/document handlers are not registered, so OAuth/deep-link compatibility
+must be tested before calling sign-in supported. No credentials are migrated.
+
+The independent bootstrap sets the vendor's `CODEX_SPARKLE_ENABLED=false` gate.
+Updates are manual rebuilds of this integration; the vendor updater must not
+replace it with an unmodified distribution. This does not change the installed
+vendor app's updater. Local code signing preserves hardened runtime/JIT support;
+Gatekeeper and library validation are not disabled.
 
 ## Selection contract
 
-The bootstrap reads `~/Library/Application Support/DrakoCodex/runtime.json` before
-the desktop starts a backend. It verifies all three executable hashes, permissions,
+The independent bootstrap reads `Contents/Resources/drako-runtime.json` before
+the desktop starts a backend. The earlier vendor-identity mode reads an external
+manifest at `~/Library/Application Support/DrakoCodex/runtime.json`. It verifies all three executable hashes, permissions,
 ownership, and the desktop version, then sets `CODEX_CLI_PATH` in that app process.
 An absent manifest, missing companion, or hash/version mismatch stops startup;
 there is no silent fallback to the bundled runtime. Login ordering and inherited
@@ -39,10 +52,12 @@ From the repository root:
 ```sh
 node --test scripts/desktop-fork/test-runtime-selector.cjs
 python3 -B -m unittest discover -s scripts/desktop-fork -p 'test_*.py'
-python3 -B scripts/desktop-fork/build_candidate.py \
+python3 -B scripts/desktop-fork/build_candidate.py --independent \
   --source-app /Applications/ChatGPT.app \
   --runtime-package '/absolute/path/to/verified/fork/package' \
   --output .drako/artifacts/persistent-desktop-candidate-new
+python3 -B scripts/desktop-fork/sign_independent.py \
+  .drako/artifacts/persistent-desktop-candidate-new
 python3 -B scripts/desktop-fork/verify_candidate.py \
   .drako/artifacts/persistent-desktop-candidate-new
 node scripts/desktop-fork/test-bootstrap.cjs \
@@ -60,18 +75,21 @@ must remain byte-identical.
 
 1. Build a complete immutable runtime package from the chosen fork commit.
 2. Run that commit's required tests and sandbox allow/deny regressions.
-3. Stage a new candidate against the chosen desktop version. Keep the source
-   commit and package build receipt alongside the candidate receipt.
-4. Verify bootstrap selection and CLI identity, then resolve desktop signing and
-   authenticated feature compatibility in isolation. Do not install an unsigned
-   candidate or assume an ad-hoc signature is equivalent to the vendor identity.
-5. Only after that gate passes, install while the app is fully quit at an
-   owner-approved activation window; atomically install the validated runtime
-   manifest. Do not replace resources of an in-use app.
-6. Verify the actual executor path/hash and sandbox behavior after normal launch
-   and macOS restoration. Retain the previous known-good app/package for rollback.
+3. Stage an independent candidate against the chosen desktop version. Keep the
+   source commit/build receipt alongside `receipt.json`, which retains pre-signing
+   runtime hashes. Signing changes the binary digests; the final embedded manifest
+   is re-pinned to the signed copies without modifying the source package.
+4. Run the isolated tests, archive verifier, signing verification and extracted
+   bootstrap smoke test. The latter executes only the selected CLI's `--version`.
+5. Test fresh sign-in and required UI/native features in the independent app before
+   treating it as a daily desktop. A valid ad-hoc signature is not notarization or
+   proof of authenticated feature compatibility. Never bypass an OS trust warning.
+6. When installing or upgrading, leave an existing running app untouched. Retain
+   the previous independent package for rollback. Verify actual executor identity
+   and sandbox behavior after normal launch and restoration.
 
-Vendor desktop updates can replace this integration. They must go through the
-same staging and compatibility gate; this code does not intercept or certify
-the vendor auto-updater. "Always our fork" is not a completed operational claim
-until update delivery and a working signed desktop distribution are established.
+The shell is a locally modified vendor distribution, not desktop source code we
+can rebuild from scratch. Vendor upgrades require rebuilding and revalidating
+this integration. The code does not change the current ChatGPT launch agent or
+switch the owner's default app. Those are separate activation steps after the
+independent desktop has passed its live acceptance checks.

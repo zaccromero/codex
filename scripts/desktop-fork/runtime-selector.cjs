@@ -13,10 +13,12 @@ function selectRuntime(manifestPath) {
     throw new Error('Fork runtime manifest must be an owner-controlled regular file');
   }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  if (manifest.schemaVersion !== 1 || !path.isAbsolute(manifest.packageRoot || '')) {
+  const relative = manifest.packageRootRelative;
+  if (manifest.schemaVersion !== 1 ||
+      (relative !== undefined ? relative !== 'drako-runtime' : !path.isAbsolute(manifest.packageRoot || ''))) {
     throw new Error('Unsupported fork runtime manifest');
   }
-  const root = fs.realpathSync(manifest.packageRoot);
+  const root = fs.realpathSync(relative ? path.join(path.dirname(manifestPath), relative) : manifest.packageRoot);
   for (const name of ['codex', 'codex-code-mode-host', 'codex-exec-server']) {
     const relative = `bin/${name}`;
     const expected = manifest.sha256?.[relative];
