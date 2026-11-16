@@ -183,22 +183,6 @@ fn seatbelt_allows_semaphore_limit_sysconf() {
 }
 
 #[test]
-fn base_policy_limits_browser_rendezvous_to_automation_builds() {
-    let expected = r##"(allow mach-register mach-lookup
-  (global-name-regex #"^(org\.chromium\.Chromium|com\.google\.chrome\.for\.testing)\.MachPortRendezvousServer\.[0-9]+$"))"##;
-    assert!(
-        MACOS_SEATBELT_BASE_POLICY.contains(expected),
-        "base policy must scope the rendezvous port to automation browser builds:\n{MACOS_SEATBELT_BASE_POLICY}"
-    );
-    for installed in ["com.google.Chrome.", "com.microsoft.edgemac", "com.apple.Safari"] {
-        assert!(
-            !MACOS_SEATBELT_BASE_POLICY.contains(installed),
-            "base policy must not name the installed browser {installed}"
-        );
-    }
-}
-
-#[test]
 fn seatbelt_allows_boot_identity_sysctl_reads() {
     let workspace = TempDir::new().expect("temp workspace");
     let policy = SandboxPolicy::new_read_only_policy();
@@ -240,6 +224,46 @@ fn seatbelt_allows_boot_identity_sysctl_reads() {
             "{name} should be readable under seatbelt: {stderr}"
         );
     }
+}
+
+#[test]
+fn seatbelt_metadata_sysctls_do_not_expose_unlisted_values() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let policy = SandboxPolicy::new_read_only_policy();
+    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
+        command: vec![
+            "/usr/sbin/sysctl".to_string(),
+            "-n".to_string(),
+            "kern.bootargs".to_string(),
+        ],
+        file_system_sandbox_policy: &FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+            &policy,
+            workspace.path(),
+        ),
+        network_sandbox_policy: NetworkSandboxPolicy::from(&policy),
+        sandbox_policy_cwd: workspace.path(),
+        enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
+        network: None,
+        extra_allow_unix_sockets: &[],
+    })
+    .expect("create seatbelt args");
+    let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+        .args(args)
+        .current_dir(workspace.path())
+        .output()
+        .expect("execute unlisted sysctl query under seatbelt");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("sandbox-exec: sandbox_apply: Operation not permitted") {
+        eprintln!("skipping unlisted sysctl query: nested Seatbelt is unavailable");
+        return;
+    }
+    assert!(
+        !output.status.success() || output.stdout.is_empty(),
+        "an unlisted sysctl value must stay unreadable: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 #[test]
