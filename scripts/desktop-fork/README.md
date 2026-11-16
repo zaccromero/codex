@@ -26,6 +26,10 @@ Vendor URL/document handlers are not registered, so OAuth/deep-link compatibilit
 must be tested before calling sign-in supported. No credentials are migrated.
 
 The independent bootstrap sets the vendor's `CODEX_SPARKLE_ENABLED=false` gate.
+It uses only Node primitives before the vendor's early bootstrap runs; loading
+Electron APIs at that point recursively re-enters Electron initialization and
+crashes. The source desktop version is embedded in the signed bootstrap prefix
+and checked against the signed runtime manifest without importing Electron.
 Updates are manual rebuilds of this integration; the vendor updater must not
 replace it with an unmodified distribution. This does not change the installed
 vendor app's updater. Local code signing preserves hardened runtime/JIT support.

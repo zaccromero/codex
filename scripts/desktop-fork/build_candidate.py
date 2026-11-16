@@ -102,8 +102,10 @@ def main():
               b'.activateSelection(require("node:path").join(require("node:os").homedir(),'
               b'"Library/Application Support/DrakoCodex/runtime.json"),require("electron").app.getVersion());\n')
     if args.independent:
+        desktop_version = json.dumps(info['CFBundleShortVersionString']).encode()
         prefix = (b'/* Drako persistent fork runtime selection v1 */\n'
-                  b'require(require("node:path").join(process.resourcesPath,"drako-independent-bootstrap.cjs"));\n')
+                  b'require(require("node:path").join(process.resourcesPath,"drako-independent-bootstrap.cjs"))'
+                  b'.activate(' + desktop_version + b');\n')
     patched, header_hash, main_entry = patch_archive(archive, prefix)
     output.mkdir(parents=True)
     candidate = output / ('Drako Codex.app' if args.independent else 'ChatGPT.app')
