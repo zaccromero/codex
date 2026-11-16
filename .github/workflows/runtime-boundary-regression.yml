@@ -10,6 +10,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_BUILD_JOBS: 3
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_PROFILE_TEST_DEBUG: 0
@@ -19,9 +20,20 @@ jobs:
         working-directory: codex-rs
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: ./.github/actions/setup-ci
       - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8
         with:
           components: rustfmt
+      - uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: aarch64-apple-darwin
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.CARGO_TARGET_DIR }}
+          key: runtime-boundary-macos-${{ hashFiles('codex-rs/Cargo.lock') }}
       - name: Format candidate and retain formatting diff
         run: |
           cargo fmt -- --config imports_granularity=Item
@@ -32,6 +44,18 @@ jobs:
         run: cargo test --locked -p codex-core --lib unified_exec -- --nocapture
       - name: Tool schema contract
         run: cargo test --locked -p codex-core --lib write_stdin_tool -- --nocapture
+      - name: Regenerate affected context snapshots
+        env:
+          INSTA_UPDATE: always
+        run: |
+          cargo test --locked -p codex-core --test all suite::scenarios
+          cargo test --locked -p codex-core --test all suite::request_plugin_install
+          cargo test --locked -p codex-core --test all suite::skills_extension
+      - name: Retain generated diff
+        if: always()
+        run: |
+          git diff > ../runtime-format.patch
+          cat ../runtime-format.patch
       - uses: actions/upload-artifact@v4
         if: always()
         with:

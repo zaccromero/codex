@@ -343,7 +343,14 @@ async fn termination_is_scoped_to_the_owning_session() -> anyhow::Result<()> {
     skip_if_sandbox!(Ok(()));
     let (session, turn) = test_session_and_turn().await;
     let (other, other_turn) = test_session_and_turn().await;
-    let running = exec_command(&session, &turn, "sleep 60", 100, None).await?;
+    let running = exec_command_with_tty(
+        &session, &turn, "sleep 60", 100, None, /*tty*/ false,
+    ).await?;
+    let unrelated = exec_command_with_tty(
+        &other, &other_turn, "sleep 60", 100, None, /*tty*/ false,
+    ).await?;
+    let unrelated_id = unrelated.process_id.expect("unrelated running process");
+    let unrelated_terminal = other.services.unified_exec_manager.resolve_terminal(unrelated_id).await?;
     let id = running.process_id.expect("running process");
     let manager = &session.services.unified_exec_manager;
     let terminal = manager.resolve_terminal(id).await?;
@@ -366,9 +373,15 @@ async fn termination_is_scoped_to_the_owning_session() -> anyhow::Result<()> {
     assert!(other.services.unified_exec_manager
         .write_stdin(&context(&other, &other_turn), request()).await.is_err());
     assert!(!terminal.process.has_exited());
+    let mut invalid = request();
+    invalid.input = "unexpected input";
+    assert!(manager.write_stdin(&context(&session, &turn), invalid).await.is_err());
+    assert!(!terminal.process.has_exited());
     let result = manager.write_stdin(&context(&session, &turn), request()).await?;
     assert!(result.process_id.is_none());
     assert!(terminal.process.has_exited());
+    assert!(!unrelated_terminal.process.has_exited());
+    assert!(other.terminate_background_terminal(unrelated_id).await);
     Ok(())
 }
 
