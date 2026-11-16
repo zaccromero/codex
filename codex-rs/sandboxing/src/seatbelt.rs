@@ -604,17 +604,17 @@ fn build_seatbelt_unreadable_glob_policy(unreadable_globs: &[String]) -> String 
             patterns.insert(pattern);
         }
         for pattern in patterns {
-            // A root-anchored recursive literal basename remains denied after any
+            // A root-anchored recursive basename pattern remains denied after any
             // ancestor move, including for files created after policy generation.
             // Scoped or multi-component patterns still need ancestor protection.
-            let global_literal_basename = pattern.strip_prefix("/**/").is_some_and(|name| {
+            let global_basename = pattern.strip_prefix("/**/").is_some_and(|name| {
                 !matches!(name, "" | "." | "..")
-                    && !name.contains(['/', '*', '?', '[', ']', '{', '}', '\\'])
+                    && !name.contains(['/', '\\'])
             });
             let Some(mut regex) = seatbelt_regex_for_unreadable_glob(&pattern) else {
                 continue;
             };
-            if global_literal_basename {
+            if global_basename {
                 // Replace the compiler's end anchor to also protect descendants
                 // when the matching basename belongs to a directory.
                 regex.pop();
@@ -623,7 +623,7 @@ fn build_seatbelt_unreadable_glob_policy(unreadable_globs: &[String]) -> String 
             let regex = regex.replace('"', "\\\"");
             policy_components.push(format!(r#"(deny file-read* (regex #"{regex}"))"#));
             policy_components.push(format!(r#"(deny file-write* (regex #"{regex}"))"#));
-            if global_literal_basename {
+            if global_basename {
                 continue;
             }
             for ancestor in Path::new(&pattern).ancestors().skip(1) {

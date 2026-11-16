@@ -116,6 +116,10 @@ pub fn create_write_stdin_tool() -> ToolSpec {
             )),
         ),
         (
+            "terminate".to_string(),
+            JsonSchema::boolean(Some("Stop this session's owned process through its executor and return final output. Cannot be combined with chars. Defaults to false.".to_string())),
+        ),
+        (
             "chars".to_string(),
             JsonSchema::string(Some(
                 "Bytes to write to stdin. Defaults to empty, which polls without writing.".to_string(),

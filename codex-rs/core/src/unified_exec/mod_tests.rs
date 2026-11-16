@@ -326,6 +326,7 @@ async fn write_stdin(
                 "write".to_string(),
             ),
             WriteStdinRequest {
+                terminate: false,
                 terminal: &terminal,
                 input,
                 yield_time_ms,
@@ -335,6 +336,53 @@ async fn write_stdin(
             },
         )
         .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn termination_is_scoped_to_the_owning_session() -> anyhow::Result<()> {
+    skip_if_sandbox!(Ok(()));
+    let (session, turn) = test_session_and_turn().await;
+    let (other, other_turn) = test_session_and_turn().await;
+    let running = exec_command_with_tty(
+        &session, &turn, "sleep 60", 100, None, /*tty*/ false,
+    ).await?;
+    let unrelated = exec_command_with_tty(
+        &other, &other_turn, "sleep 60", 100, None, /*tty*/ false,
+    ).await?;
+    let unrelated_id = unrelated.process_id.expect("unrelated running process");
+    let unrelated_terminal = other.services.unified_exec_manager.resolve_terminal(unrelated_id).await?;
+    let id = running.process_id.expect("running process");
+    let manager = &session.services.unified_exec_manager;
+    let terminal = manager.resolve_terminal(id).await?;
+    let context = |session: &Arc<Session>, turn: &Arc<TurnContext>| UnifiedExecContext::new(
+        Arc::clone(session),
+        crate::session::step_context::StepContext::for_test(Arc::clone(turn)),
+        tokio_util::sync::CancellationToken::new(),
+        "terminate".to_string(),
+    );
+    let request = || WriteStdinRequest {
+        terminal: &terminal,
+        input: "",
+        terminate: true,
+        yield_time_ms: 100,
+        max_output_tokens: None,
+        truncation_policy: TruncationPolicy::Tokens(10_000),
+        interaction_event: None,
+    };
+    // Even a borrowed handle from another manager cannot cross chat ownership.
+    assert!(other.services.unified_exec_manager
+        .write_stdin(&context(&other, &other_turn), request()).await.is_err());
+    assert!(!terminal.process.has_exited());
+    let mut invalid = request();
+    invalid.input = "unexpected input";
+    assert!(manager.write_stdin(&context(&session, &turn), invalid).await.is_err());
+    assert!(!terminal.process.has_exited());
+    let result = manager.write_stdin(&context(&session, &turn), request()).await?;
+    assert!(result.process_id.is_none());
+    assert!(terminal.process.has_exited());
+    assert!(!unrelated_terminal.process.has_exited());
+    assert!(other.terminate_background_terminal(unrelated_id).await);
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1032,6 +1080,7 @@ async fn stdin_approval_preserves_the_reviewed_terminal() -> anyhow::Result<()> 
         .write_stdin(
             &context,
             WriteStdinRequest {
+                terminate: false,
                 terminal: &original,
                 input: "",
                 yield_time_ms: 250,
@@ -1084,6 +1133,7 @@ async fn stdin_approval_observes_strict_review_enabled_while_queued() -> anyhow:
     let mut queued = Box::pin(manager.write_stdin(
         &context,
         WriteStdinRequest {
+                terminate: false,
             terminal: &terminal,
             // NUL input must be rejected when strict review becomes required.
             input: "\0",
