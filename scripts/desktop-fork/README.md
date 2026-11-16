@@ -12,9 +12,12 @@ independent build is named **Drako Codex**, bundle ID `ai.drako.codex.desktop`.
 It embeds the complete fork runtime and uses an app-relative manifest, so copying
 or restoring this app does not require a login launcher or environment override.
 
-The independent candidate is ad-hoc signed and locally signature-verified. It is
-not notarized, not installed, and not launched. Actual desktop sign-in, UI,
-notifications, computer use and macOS restoration remain unverified. The older
+The independent app was installed at `~/Applications/Drako Codex.app`. Its
+ad-hoc signature verified, but live launch failed under library validation because
+the main executable and framework have no Apple Team ID. The app did not reach
+bootstrap or sign-in. The owner chose to retain library validation and use a real
+Apple Development identity. No valid identity was available at the last check.
+Desktop sign-in, UI, notifications, computer use and restoration remain unverified. The older
 vendor-identity candidate is preserved as an unsigned investigation artifact;
 it must not be installed as a replacement for ChatGPT.
 
@@ -56,7 +59,7 @@ python3 -B scripts/desktop-fork/build_candidate.py --independent \
   --source-app /Applications/ChatGPT.app \
   --runtime-package '/absolute/path/to/verified/fork/package' \
   --output .drako/artifacts/persistent-desktop-candidate-new
-python3 -B scripts/desktop-fork/sign_independent.py \
+python3 -B scripts/desktop-fork/sign_independent.py --identity APPLE_IDENTITY_SHA1 \
   .drako/artifacts/persistent-desktop-candidate-new
 python3 -B scripts/desktop-fork/verify_candidate.py \
   .drako/artifacts/persistent-desktop-candidate-new

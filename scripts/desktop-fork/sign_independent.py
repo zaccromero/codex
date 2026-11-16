@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ad-hoc sign only a staged independent candidate. Never launch/install it."""
+"""Sign only a staged independent candidate. Never launch/install it."""
 import argparse
 import json
 from pathlib import Path
@@ -14,6 +14,7 @@ MACHO = {b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf',
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--identity', default='-', help='Apple signing identity SHA-1; default is ad-hoc (not launch-certified)')
     args = parser.parse_args()
     output = args.output.resolve(strict=True)
     receipt = json.loads((output / 'receipt.json').read_text())
@@ -41,7 +42,7 @@ def main():
             if stream.read(4) in MACHO:
                 files.append(file)
     def sign(target, executable=False):
-        command = ['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', '--options', 'runtime']
+        command = ['/usr/bin/codesign', '--force', '--sign', args.identity, '--timestamp=none', '--options', 'runtime']
         if executable:
             command += ['--entitlements', str(entitlements)]
         subprocess.run(command + [str(target)], check=True, capture_output=True)
@@ -66,7 +67,14 @@ def main():
     (output / 'runtime.json').write_bytes(manifest_file.read_bytes())
     sign(app, executable=True)
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-    receipt.update(status='adhoc-signed-independent-not-installed', runtime=manifest,
+    metadata = subprocess.run(['/usr/bin/codesign', '-dv', str(app)],
+                              check=True, capture_output=True, text=True).stderr
+    team = next((line.partition('=')[2] for line in metadata.splitlines()
+                 if line.startswith('TeamIdentifier=')), None)
+    if args.identity != '-' and team in (None, 'not set'):
+        raise ValueError('Requested Apple identity did not produce a TeamIdentifier')
+    status = ('adhoc' if args.identity == '-' else 'apple-identity') + '-signed-independent-not-installed'
+    receipt.update(status=status, runtime=manifest, signingTeam=team,
                    signatureVerified=True, notarized=False, launchPerformed=False,
                    liveActivationVerified=False)
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
