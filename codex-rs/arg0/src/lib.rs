@@ -129,6 +129,46 @@ pub fn arg0_dispatch() -> Option<Arg0PathEntryGuard> {
         std::process::exit(exit_code);
     }
 
+    // Account entry must precede dotenv and alias creation. The dedicated
+    // executor uses packaged helpers and must never inspect the owner's config.
+    let account_startup = (|| -> std::io::Result<bool> {
+        let raw_args = std::env::args_os().skip(1).collect::<Vec<_>>();
+        if !raw_args.iter().any(|arg| {
+            arg.to_str().is_some_and(|arg| {
+                arg == "--execution-account-policy"
+                    || arg.starts_with("--execution-account-policy=")
+            })
+        }) {
+            return Ok(false);
+        }
+        let args = raw_args
+            .into_iter()
+            .map(|arg| {
+                arg.into_string().map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "account startup requires UTF-8 arguments",
+                    )
+                })
+            })
+            .collect::<std::io::Result<Vec<_>>>()?;
+        let Some(path) = codex_exec_server::ExecutionAccountPolicy::startup_policy_path(&args)?
+        else {
+            return Ok(false);
+        };
+        let policy = codex_exec_server::ExecutionAccountPolicy::from_file(&path)?;
+        policy.enter(&std::env::current_exe()?, &path)?;
+        Ok(true)
+    })();
+    match account_startup {
+        Ok(true) => return None,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("execution account startup refused: {error}");
+            std::process::exit(1);
+        }
+    }
+
     // This modifies the environment, which is not thread-safe, so do this
     // before creating any threads/the Tokio runtime.
     load_dotenv();
@@ -177,7 +217,8 @@ fn prepare_path_env_var_with_aliases(
 /// `codex-linux-sandbox` we *directly* execute
 /// [`codex_linux_sandbox::run_main`] (which never returns). Otherwise we:
 ///
-/// 1.  Load `.env` values from `~/.codex/.env` before creating any threads.
+/// 1.  Enter an explicitly provisioned execution account, or load `.env` values
+///     from `~/.codex/.env` before creating any threads.
 /// 2.  Spawn a main runtime thread with a controlled stack size.
 /// 3.  Construct a Tokio multi-thread runtime.
 /// 4.  Capture the current executable path and derive the

@@ -768,3 +768,63 @@ async fn managed_network_honors_windows_sandbox_level(windows_sandbox_level: Win
         .await
         .expect("shut down executor proxy");
 }
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn execution_account_preparation_rejects_missing_and_unapproved_sandbox() {
+    let temp = tempdir().unwrap();
+    let home = temp.path().canonicalize().unwrap();
+    let root = home.join("ci");
+    std::fs::create_dir(&root).unwrap();
+    let cwd = PathUri::from_abs_path(&AbsolutePathBuf::from_absolute_path(&root).unwrap());
+    let mut runtime =
+        ExecServerRuntimeOptions::new(std::env::current_exe().unwrap(), None).unwrap();
+    runtime.execution_account = Some(
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1, "username": "ci-user", "uid": 65001, "gid": 20,
+            "home": home, "root": root, "path": "/usr/bin:/bin"
+        }))
+        .unwrap(),
+    );
+    let mut params = ExecParams {
+        metadata: Default::default(),
+        process_id: ProcessId::from("account-negative"),
+        argv: vec!["/usr/bin/true".into()],
+        cwd: cwd.clone(),
+        shell_snapshot: None,
+        env_policy: None,
+        env: HashMap::new(),
+        tty: false,
+        pipe_stdin: false,
+        arg0: None,
+        sandbox: None,
+        enforce_managed_network: false,
+        managed_network: None,
+        network_proxy: None,
+    };
+    let error = prepare_exec_request(&params, HashMap::new(), Some(&runtime), None, None)
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        error.message.contains("approved native sandbox"),
+        "{error:?}"
+    );
+    params.sandbox = Some(FileSystemSandboxContext::from_permission_profile(
+        PermissionProfile::workspace_write(),
+        cwd,
+    ));
+    let error = prepare_exec_request(&params, HashMap::new(), Some(&runtime), None, None)
+        .await
+        .err()
+        .unwrap();
+    assert!(error.message.contains("approved escalation"), "{error:?}");
+    // Normal mode must still permit its existing unsandboxed preparation path.
+    runtime.execution_account = None;
+    params.sandbox = None;
+    assert!(
+        prepare_exec_request(&params, HashMap::new(), Some(&runtime), None, None)
+            .await
+            .is_ok()
+    );
+}

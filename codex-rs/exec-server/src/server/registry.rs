@@ -60,7 +60,7 @@ use crate::rpc::internal_error;
 use crate::rpc::invalid_params;
 use crate::server::ExecServerHandler;
 
-pub(crate) fn build_router() -> RpcRouter<ExecServerHandler> {
+pub(crate) fn build_router(account_only: bool) -> RpcRouter<ExecServerHandler> {
     let mut router = RpcRouter::new();
     router.notification(
         INITIALIZED_METHOD,
@@ -72,12 +72,6 @@ pub(crate) fn build_router() -> RpcRouter<ExecServerHandler> {
         INITIALIZE_METHOD,
         |handler: Arc<ExecServerHandler>, params: InitializeParams| async move {
             handler.initialize(params).await
-        },
-    );
-    router.request_with_id(
-        HTTP_REQUEST_METHOD,
-        |handler: Arc<ExecServerHandler>, request_id, params: HttpRequestParams| async move {
-            handler.http_request(request_id, params).await
         },
     );
     router.request_with_trace(
@@ -95,27 +89,8 @@ pub(crate) fn build_router() -> RpcRouter<ExecServerHandler> {
         |handler: Arc<ExecServerHandler>, _params: ()| async move { handler.environment_info() },
     );
     router.request(
-        ENVIRONMENT_CONFIG_READ_METHOD,
-        |handler: Arc<ExecServerHandler>, params: EnvironmentConfigReadParams| async move {
-            handler.environment_config_read(params).await
-        },
-    );
-    router.request(
         ENVIRONMENT_STATUS_METHOD,
         |handler: Arc<ExecServerHandler>, _params: ()| async move { handler.environment_status() },
-    );
-    router.request(
-        CAPABILITY_ROOTS_DISCOVER_METHOD,
-        |handler: Arc<ExecServerHandler>, params: WireCapabilityRootsDiscoverParams| async move {
-            let params = params.try_into_request(resolve_filesystem_sandbox)?;
-            handler.discover_capability_roots(params).await
-        },
-    );
-    router.request(
-        CAPABILITIES_DISCOVER_V2_METHOD,
-        |handler: Arc<ExecServerHandler>, params: DiscoverV2CapabilitiesRequest| async move {
-            handler.discover_capabilities_v2(params).await
-        },
     );
     router.request(
         EXEC_READ_METHOD,
@@ -139,6 +114,36 @@ pub(crate) fn build_router() -> RpcRouter<ExecServerHandler> {
         EXEC_TERMINATE_METHOD,
         |handler: Arc<ExecServerHandler>, params: TerminateParams| async move {
             handler.terminate(params).await
+        },
+    );
+    // Account mode exposes only initialization, identity and owned processes.
+    // Filesystem/config/discovery/HTTP routes must not become unsandboxed paths.
+    if account_only {
+        return router;
+    }
+    router.request_with_id(
+        HTTP_REQUEST_METHOD,
+        |handler: Arc<ExecServerHandler>, request_id, params: HttpRequestParams| async move {
+            handler.http_request(request_id, params).await
+        },
+    );
+    router.request(
+        ENVIRONMENT_CONFIG_READ_METHOD,
+        |handler: Arc<ExecServerHandler>, params: EnvironmentConfigReadParams| async move {
+            handler.environment_config_read(params).await
+        },
+    );
+    router.request(
+        CAPABILITY_ROOTS_DISCOVER_METHOD,
+        |handler: Arc<ExecServerHandler>, params: WireCapabilityRootsDiscoverParams| async move {
+            let params = params.try_into_request(resolve_filesystem_sandbox)?;
+            handler.discover_capability_roots(params).await
+        },
+    );
+    router.request(
+        CAPABILITIES_DISCOVER_V2_METHOD,
+        |handler: Arc<ExecServerHandler>, params: DiscoverV2CapabilitiesRequest| async move {
+            handler.discover_capabilities_v2(params).await
         },
     );
     router.request(
@@ -257,4 +262,56 @@ fn resolve_filesystem_sandbox(
             .map_err(|err| internal_error(err.to_string()))?
     };
     Ok(sandbox.into_context(cwd))
+}
+
+#[cfg(test)]
+mod execution_account_router_tests {
+    use super::*;
+
+    #[test]
+    fn account_mode_exposes_only_process_lifecycle_and_identity() {
+        let account = build_router(true);
+        let ordinary = build_router(false);
+        for method in [
+            INITIALIZE_METHOD,
+            ENVIRONMENT_INFO_METHOD,
+            ENVIRONMENT_STATUS_METHOD,
+            EXEC_METHOD,
+            EXEC_READ_METHOD,
+            EXEC_WRITE_METHOD,
+            EXEC_SIGNAL_METHOD,
+            EXEC_TERMINATE_METHOD,
+        ] {
+            assert!(account.request_route(method).is_some(), "missing {method}");
+        }
+        for method in [
+            HTTP_REQUEST_METHOD,
+            ENVIRONMENT_CONFIG_READ_METHOD,
+            CAPABILITY_ROOTS_DISCOVER_METHOD,
+            CAPABILITIES_DISCOVER_V2_METHOD,
+            FS_READ_FILE_METHOD,
+            FS_OPEN_METHOD,
+            FS_READ_BLOCK_METHOD,
+            FS_WRITE_BLOCK_METHOD,
+            FS_CLOSE_METHOD,
+            FS_WRITE_FILE_METHOD,
+            FS_READ_DIRECTORY_METHOD,
+            FS_REMOVE_METHOD,
+            FS_COPY_METHOD,
+            FS_CREATE_DIRECTORY_METHOD,
+            FS_CANONICALIZE_METHOD,
+            FS_GET_METADATA_METHOD,
+            FS_WALK_METHOD,
+        ] {
+            assert!(
+                account.request_route(method).is_none(),
+                "account exposed {method}"
+            );
+            assert!(
+                ordinary.request_route(method).is_some(),
+                "ordinary lost {method}"
+            );
+        }
+        assert!(account.request_route("future/unsafe").is_none());
+    }
 }

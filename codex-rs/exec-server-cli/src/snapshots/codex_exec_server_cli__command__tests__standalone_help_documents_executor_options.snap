@@ -1,6 +1,5 @@
 ---
 source: exec-server-cli/src/exec_server_args_tests.rs
-assertion_line: 338
 expression: help
 ---
 [EXPERIMENTAL] Run the standalone exec-server service
@@ -21,6 +20,11 @@ Options:
           Examples: - `-c model="o3"` - `-c
           'sandbox_permissions=["disk-full-read-access"]'` - `-c
           shell_environment_policy.inherit=all`
+
+      --execution-account-policy <PATH>
+          Administrator-provisioned dedicated macOS account; requires --listen
+          stdio. No credentials or config overrides are accepted in this startup
+          mode
 
       --strict-config
           Error out when config.toml contains fields that are not recognized by

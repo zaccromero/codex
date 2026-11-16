@@ -52,9 +52,13 @@ impl ConnectionProcessor {
         let _ = BuildInfo::get();
         let capability_manager =
             CapabilityManager::new(LocalFileSystem::with_runtime_paths(runtime_paths.clone()));
+        let account_only = runtime_paths.execution_account.is_some();
         let manager = Arc::clone(&capability_manager);
         // Start before any client connects; all sessions share these inert global locations.
         let prewarm = tokio::spawn(async move {
+            if account_only {
+                return;
+            }
             // Home resolution failures are nonfatal, just like scan failures.
             if let Err(error) = manager.prewarm_locations().await {
                 tracing::warn!(error_kind = ?error.kind(), "capability location prewarming unavailable");
@@ -132,6 +136,7 @@ async fn run_connection(
         mpsc::channel::<RpcServerOutboundMessage>(CHANNEL_CAPACITY);
     let notifications = RpcNotificationSender::new(outgoing_tx.clone());
     let requests = notifications.request_sender();
+    let account_only = runtime_paths.execution_account.is_some();
     let mut handler = ExecServerHandler::new(
         session_registry,
         capability_manager,
@@ -158,7 +163,7 @@ async fn run_connection(
     });
 
     let mut dispatcher = RequestDispatcher::new(
-        Arc::new(build_router()),
+        Arc::new(build_router(account_only)),
         Arc::clone(&handler),
         outgoing_tx.clone(),
         disconnected_rx.clone(),
