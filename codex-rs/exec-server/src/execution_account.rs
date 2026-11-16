@@ -133,7 +133,13 @@ impl ExecutionAccountPolicy {
 
     #[cfg(target_os = "macos")]
     fn validate_environment(&self, actual: &HashMap<String, String>) -> io::Result<()> {
-        if actual != &self.clean_environment() {
+        // CoreFoundation may synthesize this process-local preference encoding
+        // marker after an otherwise empty `env -i` launch. It carries no owner
+        // environment or credential data, so ignore only this macOS-owned key
+        // while continuing to reject every other inherited variable.
+        let mut actual = actual.clone();
+        actual.remove("__CF_USER_TEXT_ENCODING");
+        if actual != self.clean_environment() {
             return Err(refused(
                 "account executor requires exactly its provisioned clean environment",
             ));

@@ -369,6 +369,12 @@ fn account_startup_is_detected_before_loading_environment() {
 fn direct_account_startup_rejects_environment_injection_and_wrong_home() {
     let p = policy();
     p.validate_environment(&p.clean_environment()).unwrap();
+    let mut macos_runtime = p.clean_environment();
+    macos_runtime.insert(
+        "__CF_USER_TEXT_ENCODING".into(),
+        "0x1F6:0x0:0x0".into(),
+    );
+    p.validate_environment(&macos_runtime).unwrap();
     for key in [
         "HOME",
         "USER",
