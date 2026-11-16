@@ -10,6 +10,18 @@ MACHO = {b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf',
          b'\xfe\xed\xfa\xce', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca',
          b'\xca\xfe\xba\xbf'}
 
+INDEPENDENT_ENTITLEMENTS = {
+    'com.apple.security.cs.allow-jit': True,
+    'com.apple.security.cs.allow-unsigned-executable-memory': True,
+    # Ad-hoc signatures do not have a Team ID. Hardened runtime otherwise
+    # rejects Electron's separately signed framework and helper executables as
+    # foreign code before the application can start.
+    'com.apple.security.cs.disable-library-validation': True,
+    'com.apple.security.device.audio-input': True,
+    'com.apple.security.device.camera': True,
+    'com.apple.security.automation.apple-events': True,
+}
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,13 +38,7 @@ def main():
     if list(app.rglob('embedded.provisionprofile')):
         raise ValueError('Vendor provisioning profiles must not be claimed')
     entitlements = output / 'independent-entitlements.plist'
-    entitlements.write_bytes(plistlib.dumps({
-        'com.apple.security.cs.allow-jit': True,
-        'com.apple.security.cs.allow-unsigned-executable-memory': True,
-        'com.apple.security.device.audio-input': True,
-        'com.apple.security.device.camera': True,
-        'com.apple.security.automation.apple-events': True,
-    }))
+    entitlements.write_bytes(plistlib.dumps(INDEPENDENT_ENTITLEMENTS))
     files = []
     for file in app.rglob('*'):
         if file.is_symlink() or not file.is_file():

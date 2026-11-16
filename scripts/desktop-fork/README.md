@@ -28,8 +28,11 @@ must be tested before calling sign-in supported. No credentials are migrated.
 The independent bootstrap sets the vendor's `CODEX_SPARKLE_ENABLED=false` gate.
 Updates are manual rebuilds of this integration; the vendor updater must not
 replace it with an unmodified distribution. This does not change the installed
-vendor app's updater. Local code signing preserves hardened runtime/JIT support;
-Gatekeeper and library validation are not disabled.
+vendor app's updater. Local code signing preserves hardened runtime/JIT support.
+Because ad-hoc signatures have no Team ID, the independent app explicitly
+disables hardened-runtime library validation so Electron can load its separately
+signed framework and helpers. The signer still verifies every staged Mach-O and
+the final bundle; the app is not notarized or suitable for redistribution.
 
 ## Selection contract
 
