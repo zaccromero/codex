@@ -104,6 +104,20 @@
   (global-name "com.apple.PowerManagement.control")
 )
 
+; Boot identity. Read-only values that process-identity checks (the app-server
+; daemon updater) and local CI helpers need; they disclose only when the machine
+; started and its boot session identifier.
+(allow sysctl-read
+  (sysctl-name "kern.boottime")
+  (sysctl-name "kern.bootsessionuuid"))
+
+; A test browser publishes a per-process rendezvous port that only its own child
+; processes look up; without it a headless launch dies before opening a page.
+; Limited to the automation builds (Chromium, Chrome for Testing), never the
+; user's installed browsers.
+(allow mach-register mach-lookup
+  (global-name-regex #"^(org\.chromium\.Chromium|com\.google\.chrome\.for\.testing)\.MachPortRendezvousServer\.[0-9]+$"))
+
 ; allow openpty()
 (allow pseudo-tty)
 (allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))
