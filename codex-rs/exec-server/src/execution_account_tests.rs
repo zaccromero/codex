@@ -369,6 +369,13 @@ fn account_startup_is_detected_before_loading_environment() {
 fn direct_account_startup_rejects_environment_injection_and_wrong_home() {
     let p = policy();
     p.validate_environment(&p.clean_environment()).unwrap();
+    let mut synthesized = p.clean_environment();
+    synthesized.insert("__CF_USER_TEXT_ENCODING".into(), "0x1F6:0x0:0x0".into());
+    p.validate_environment(&synthesized).unwrap();
+    assert!(
+        !p.clean_environment()
+            .contains_key("__CF_USER_TEXT_ENCODING")
+    );
     for key in [
         "HOME",
         "USER",

@@ -87,7 +87,7 @@ impl ExecutionAccountPolicy {
         has_denied_reads: bool,
         shell_snapshot: bool,
         custom_arg0: bool,
-        managed_network: bool,
+        unsupported_network: bool,
     ) -> io::Result<()> {
         self.validate()?;
         if sandbox_override != SandboxOverride::EscalatedSandboxWithRestrictions
@@ -97,9 +97,9 @@ impl ExecutionAccountPolicy {
                 "execution account requires explicit approved escalation with retained denied reads",
             ));
         }
-        if shell_snapshot || custom_arg0 || managed_network {
+        if shell_snapshot || custom_arg0 || unsupported_network {
             return Err(refused(
-                "execution account does not support shell snapshots, custom argv0 or managed network proxies",
+                "execution account does not support shell snapshots, custom argv0, external proxies or credential providers",
             ));
         }
         self.verify_identity()?;
@@ -133,7 +133,12 @@ impl ExecutionAccountPolicy {
 
     #[cfg(target_os = "macos")]
     fn validate_environment(&self, actual: &HashMap<String, String>) -> io::Result<()> {
-        if actual != &self.clean_environment() {
+        // CoreFoundation can synthesize this process-local encoding marker even
+        // after env -i. Workloads still receive only clean_environment(); this
+        // marker is never forwarded. Every other unexpected key is rejected.
+        let mut actual = actual.clone();
+        actual.remove("__CF_USER_TEXT_ENCODING");
+        if actual != self.clean_environment() {
             return Err(refused(
                 "account executor requires exactly its provisioned clean environment",
             ));

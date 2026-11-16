@@ -132,9 +132,7 @@ pub(crate) async fn prepare_exec_request_with_telemetry(
                     .has_denied_read_restrictions(),
                 params.shell_snapshot.is_some(),
                 params.arg0.is_some(),
-                params.enforce_managed_network
-                    || params.network_proxy.is_some()
-                    || params.managed_network.is_some(),
+                unsupported_account_network(params),
             )
             .map_err(sandbox_preparation_error)?;
         account.clean_environment()
@@ -331,6 +329,18 @@ pub(crate) async fn prepare_exec_request_with_telemetry(
         network_proxy_handle,
         windows_sandbox,
     })
+}
+
+fn unsupported_account_network(params: &ExecParams) -> bool {
+    // Never reuse an owner-side listener or credential provider in the CI account.
+    // Executor-local proxies use the existing policy callbacks and native network sandbox.
+    params.managed_network.is_some()
+        || match params.network_proxy.as_ref() {
+            Some(launch) => {
+                !params.enforce_managed_network || launch.proxy.credential_masking_enabled()
+            }
+            None => params.enforce_managed_network,
+        }
 }
 
 async fn prepare_managed_network(

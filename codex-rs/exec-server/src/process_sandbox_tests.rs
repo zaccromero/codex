@@ -287,6 +287,41 @@ fn seatbelt_policy_arg(command: &[String]) -> &str {
 }
 
 #[cfg(target_os = "macos")]
+#[test]
+fn execution_account_network_requires_enforced_local_proxy_without_credentials() {
+    let (mut params, _) = managed_network_sandbox_request();
+    assert!(super::unsupported_account_network(&params));
+    let config = codex_network_proxy::NetworkProxyConfig {
+        enabled: true,
+        ..Default::default()
+    };
+    let proxy = codex_network_proxy::RemoteNetworkProxyConfig::from_effective_config(&config)
+        .expect("remote proxy configuration");
+    params.network_proxy = Some(codex_network_proxy::RemoteNetworkProxyLaunchConfig::new(
+        proxy,
+    ));
+    assert!(!super::unsupported_account_network(&params));
+    params.enforce_managed_network = false;
+    assert!(super::unsupported_account_network(&params));
+    params.enforce_managed_network = true;
+    params.managed_network = Some(ManagedNetworkSandboxContext {
+        loopback_ports: vec![43123],
+        allow_local_binding: false,
+        allow_unix_sockets: vec![],
+        dangerously_allow_all_unix_sockets: false,
+    });
+    assert!(super::unsupported_account_network(&params));
+    params.managed_network = None;
+    params
+        .network_proxy
+        .as_mut()
+        .unwrap()
+        .proxy
+        .enable_credential_masking(Default::default());
+    assert!(super::unsupported_account_network(&params));
+}
+
+#[cfg(target_os = "macos")]
 #[tokio::test]
 async fn sandbox_request_preserves_prepared_managed_network_policy() {
     let (mut params, runtime_paths) = managed_network_sandbox_request();
