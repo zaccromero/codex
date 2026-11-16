@@ -227,31 +227,34 @@ pub(crate) async fn prepare_exec_request_with_telemetry(
         program
     };
     let mut request = sandbox_manager
-        .transform(SandboxTransformRequest {
-            command: SandboxCommand {
-                program,
-                args,
-                cwd: params.cwd.clone(),
-                env,
-                managed_network,
-                additional_permissions: None,
+        .transform_with_override(
+            SandboxTransformRequest {
+                command: SandboxCommand {
+                    program,
+                    args,
+                    cwd: params.cwd.clone(),
+                    env,
+                    managed_network,
+                    additional_permissions: None,
+                },
+                permissions: &sandbox_context.permissions,
+                workspace_roots: Some(&sandbox_context.workspace_roots),
+                runtime_readable_paths: &runtime_readable_paths,
+                selection,
+                enforce_managed_network: params.enforce_managed_network,
+                environment_id: None,
+                network: None,
+                sandbox_policy_cwd: &sandbox_context.cwd,
+                sandbox_exe: if cfg!(windows) {
+                    Some(runtime_paths.codex_self_exe.as_path())
+                } else {
+                    runtime_paths.codex_linux_sandbox_exe.as_deref()
+                },
+                use_legacy_landlock: sandbox_context.use_legacy_landlock,
+                windows_sandbox_level,
             },
-            permissions: &sandbox_context.permissions,
-            workspace_roots: Some(&sandbox_context.workspace_roots),
-            runtime_readable_paths: &runtime_readable_paths,
-            selection,
-            enforce_managed_network: params.enforce_managed_network,
-            environment_id: None,
-            network: None,
-            sandbox_policy_cwd: &sandbox_context.cwd,
-            sandbox_exe: if cfg!(windows) {
-                Some(runtime_paths.codex_self_exe.as_path())
-            } else {
-                runtime_paths.codex_linux_sandbox_exe.as_deref()
-            },
-            use_legacy_landlock: sandbox_context.use_legacy_landlock,
-            windows_sandbox_level,
-        })
+            sandbox_context.sandbox_override,
+        )
         .map_err(|err| match err {
             codex_sandboxing::SandboxTransformError::SandboxUnavailable => {
                 ProcessStartErrorData::SandboxUnavailable.attach_to(invalid_params(err.to_string()))

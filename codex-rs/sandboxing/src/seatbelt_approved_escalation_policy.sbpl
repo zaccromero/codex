@@ -1,0 +1,52 @@
+; Host services an explicitly approved escalation may reach.
+;
+; This block is added only when the user (or the configured reviewer) approved
+; an escalated command and the filesystem policy keeps denied reads, so the
+; command still runs sandboxed with every denied path intact. It is never part
+; of the default profile. It is placed after the blanket xpc-service deny and
+; before the denied-read rules, so it can open these services but not any path.
+
+; iOS Simulator control (simctl, xcodebuild test destinations).
+; The client talks to more than one CoreSimulator service (the control service, the
+; disk-image service and per-runtime helpers), so the whole namespace is opened;
+; narrowing it to the two obvious names left every device unavailable.
+(allow mach-lookup
+  (global-name-prefix "com.apple.CoreSimulator")
+  (xpc-service-name-prefix "com.apple.CoreSimulator")
+  (global-name "com.apple.DiskArbitration.diskarbitrationd"))
+(allow file-write*
+  (regex #"^/Users/[^/]+/Library/Logs/CoreSimulator/"))
+; Simulator runtimes are sealed, read-only disk images mounted by the system. The
+; client loads libraries from them (liblaunch_sim.dylib) to decide whether a
+; device is available; without this every device reads as unavailable.
+(allow file-read* file-map-executable
+  (regex #"^/private/var/run/com\.apple\.security\.cryptexd/mnt/com\.apple\.[A-Za-z]+\.SimulatorRuntime-"))
+
+; Test browsers (Playwright's Chromium and Chrome for Testing): the startup
+; handshakes that failed with "Permission denied (1100)". Only what each observed
+; failure required is opened; window-server, privacy-prompt and Launch Services
+; lookups stay closed because no failure has shown a need for them. The rules name
+; automation builds only, never an installed browser. This is not yet enough for a
+; page to load: Chromium still needs its own sandbox disabled (--no-sandbox) inside
+; a sandboxed command.
+(allow mach-register mach-lookup
+  (global-name-regex #"^(org\.chromium\.Chromium|com\.google\.chrome\.for\.testing)\.MachPortRendezvousServer\.[0-9]+$"))
+; Chromium's crash handler hands a port to its child through a name it registers.
+(allow mach-register mach-lookup
+  (global-name-regex #"^org\.chromium\.crashpad\.child_port_handshake\.[0-9A-Za-z.]+$"))
+(allow mach-lookup
+  (global-name "com.apple.CoreServices.coreservicesd"))
+
+; Chromium's single-instance lock is a Unix socket in its temporary directory.
+(allow network-bind network-inbound network-outbound
+  (local unix-socket (regex #"^/private/var/folders/[^/]+/[^/]+/T/")))
+
+; Read-only system metadata both of them query. No secrets.
+(allow mach-lookup
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.logd"))
+(allow sysctl-read
+  (sysctl-name "kern.iossupportversion")
+  (sysctl-name "kern.ngroups")
+  (sysctl-name "kern.willshutdown")
+  (sysctl-name "security.mac.lockdown_mode_state"))

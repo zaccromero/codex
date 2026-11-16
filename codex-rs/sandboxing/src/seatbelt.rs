@@ -17,6 +17,9 @@ use tracing::warn;
 use url::Url;
 
 const MACOS_SEATBELT_BASE_POLICY: &str = include_str!("seatbelt_base_policy.sbpl");
+/// Host services reachable only after an approved escalation; see the file's header.
+const MACOS_SEATBELT_APPROVED_ESCALATION_POLICY: &str =
+    include_str!("seatbelt_approved_escalation_policy.sbpl");
 const MACOS_SEATBELT_NETWORK_POLICY: &str = include_str!("seatbelt_network_policy.sbpl");
 // System libcurl needs this service for TLS; keep it out of Unix-only profiles.
 const MACOS_SEATBELT_TLS_TRUST_POLICY: &str =
@@ -820,6 +823,22 @@ pub(crate) fn create_seatbelt_command_args_with_profile(
     profile: MacosSeatbeltProfile,
     allowed_symlinked_codex_home: Option<&AbsolutePathBuf>,
 ) -> Result<Vec<String>, SeatbeltPreparationError> {
+    create_seatbelt_command_args_with_escalation(
+        args,
+        profile,
+        allowed_symlinked_codex_home,
+        /*approved_escalation*/ false,
+    )
+}
+
+/// `approved_escalation` adds the approved-escalation host services. Callers set it
+/// only for a command whose escalation was approved and whose denied reads stay in force.
+pub(crate) fn create_seatbelt_command_args_with_escalation(
+    args: CreateSeatbeltCommandArgsParams<'_>,
+    profile: MacosSeatbeltProfile,
+    allowed_symlinked_codex_home: Option<&AbsolutePathBuf>,
+    approved_escalation: bool,
+) -> Result<Vec<String>, SeatbeltPreparationError> {
     let CreateSeatbeltCommandArgsParams {
         command,
         file_system_sandbox_policy,
@@ -1009,6 +1028,11 @@ pub(crate) fn create_seatbelt_command_args_with_profile(
         policy_sections.push(daemon::protection_policy(&directory)?);
     }
     policy_sections.push("(deny mach-lookup (xpc-service-name-prefix \"\"))".to_string());
+    if approved_escalation {
+        // After the blanket xpc deny so these services open, before the denied-read
+        // rules so no path allowance here can reopen a protected file.
+        policy_sections.push(MACOS_SEATBELT_APPROVED_ESCALATION_POLICY.to_string());
+    }
     policy_sections.push(deny_read_policy);
     // Renaming an allowed ancestor relocates its protected descendants past
     // their pathname carveouts. Keep these denies last so no broader allowance

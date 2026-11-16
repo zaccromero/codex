@@ -383,6 +383,20 @@ impl SandboxManager {
         &self,
         request: SandboxTransformRequest<'_>,
     ) -> Result<WrappedSandboxCommand, SandboxTransformError> {
+        self.transform_with_override(request, SandboxOverride::NoOverride)
+    }
+
+    /// Like [`Self::transform`], for a command whose controller already chose an override.
+    /// An approved escalation that keeps denied reads also gets the approved-escalation
+    /// host services (Simulator, test browsers); no other override changes the sandbox.
+    pub fn transform_with_override(
+        &self,
+        request: SandboxTransformRequest<'_>,
+        sandbox_override: SandboxOverride,
+    ) -> Result<WrappedSandboxCommand, SandboxTransformError> {
+        #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+        let approved_escalation =
+            sandbox_override == SandboxOverride::EscalatedSandboxWithRestrictions;
         let command = request.command;
         let is_file_system_helper = matches!(self.operation, SandboxOperation::FileSystemHelper);
         if is_file_system_helper
@@ -527,7 +541,7 @@ impl SandboxManager {
                 use crate::seatbelt::CreateSeatbeltCommandArgsParams;
                 use crate::seatbelt::MACOS_PATH_TO_SEATBELT_EXECUTABLE;
                 use crate::seatbelt::SeatbeltPreparationError;
-                use crate::seatbelt::create_seatbelt_command_args_with_profile;
+                use crate::seatbelt::create_seatbelt_command_args_with_escalation;
 
                 let pending = pending?;
                 exec.permission_profile = pending.effective_permission_profile;
@@ -555,7 +569,7 @@ impl SandboxManager {
                         (MacosSeatbeltProfile::FileSystemHelper, [].as_slice())
                     }
                 };
-                let args = create_seatbelt_command_args_with_profile(
+                let args = create_seatbelt_command_args_with_escalation(
                     CreateSeatbeltCommandArgsParams {
                         command: std::mem::take(&mut exec.command),
                         file_system_sandbox_policy: &file_system_sandbox_policy,
@@ -569,6 +583,7 @@ impl SandboxManager {
                     },
                     profile,
                     self.allowed_symlinked_codex_home.as_ref(),
+                    approved_escalation,
                 )
                 .map_err(|err| match err {
                     SeatbeltPreparationError::FileSystem(message) => {

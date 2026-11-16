@@ -1,11 +1,13 @@
 use super::CreateSeatbeltCommandArgsParams;
 use super::GlobMatch;
 use super::MACOS_PATH_TO_SEATBELT_EXECUTABLE;
+use super::MACOS_SEATBELT_APPROVED_ESCALATION_POLICY;
 use super::MACOS_SEATBELT_BASE_POLICY;
 use super::MacosSeatbeltProfile;
 use super::ProxyPolicyInputs;
 use super::UnixDomainSocketPolicy;
 use super::create_seatbelt_command_args;
+use super::create_seatbelt_command_args_with_escalation;
 use super::create_seatbelt_command_args_with_profile;
 use super::dynamic_network_policy_for_network;
 use super::normalize_path_for_sandbox;
@@ -263,6 +265,166 @@ fn seatbelt_metadata_sysctls_do_not_expose_unlisted_values() {
         !output.status.success() || output.stdout.is_empty(),
         "an unlisted sysctl value must stay unreadable: {}",
         String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+fn escalation_test_args(approved_escalation: bool, command: Vec<String>) -> Vec<String> {
+    let unreadable = absolute_path("/tmp/codex-unreadable");
+    let file_system_policy = FileSystemSandboxPolicy::restricted(vec![
+        FileSystemSandboxEntry {
+            path: FileSystemPath::Special {
+                value: FileSystemSpecialPath::Root,
+            },
+            access: FileSystemAccessMode::Write,
+            missing_path_behavior: None,
+        },
+        FileSystemSandboxEntry {
+            path: unreadable.into(),
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
+        },
+    ]);
+    create_seatbelt_command_args_with_escalation(
+        CreateSeatbeltCommandArgsParams {
+            command,
+            file_system_sandbox_policy: &file_system_policy,
+            network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+            sandbox_policy_cwd: Path::new("/"),
+            enforce_managed_network: false,
+            managed_network: None,
+            environment_id: None,
+            network: None,
+            extra_allow_unix_sockets: &[],
+        },
+        MacosSeatbeltProfile::Process,
+        /*allowed_symlinked_codex_home*/ None,
+        approved_escalation,
+    )
+    .expect("create seatbelt args")
+}
+
+#[test]
+fn approved_escalation_adds_host_services_without_touching_any_other_rule() {
+    let command = vec!["/bin/true".to_string()];
+    let default_args = escalation_test_args(false, command.clone());
+    let escalated_args = escalation_test_args(true, command);
+    let default_policy = seatbelt_policy_arg(&default_args);
+    let escalated_policy = seatbelt_policy_arg(&escalated_args);
+
+    for service in [
+        "com.apple.CoreSimulator",
+        "MachPortRendezvousServer",
+        "child_port_handshake",
+    ] {
+        assert!(
+            !default_policy.contains(service),
+            "the default profile must not name {service}"
+        );
+        assert!(
+            escalated_policy.contains(service),
+            "approved escalation must allow {service}"
+        );
+    }
+    // The block lands after the blanket xpc deny, so it can open services.
+    let blanket_deny = escalated_policy
+        .find("(deny mach-lookup (xpc-service-name-prefix \"\"))")
+        .expect("blanket xpc deny");
+    let block = escalated_policy
+        .find(MACOS_SEATBELT_APPROVED_ESCALATION_POLICY)
+        .expect("approved escalation block");
+    assert!(
+        block > blanket_deny,
+        "services must be allowed after the blanket xpc deny"
+    );
+    // Removing the block must give back the default policy byte for byte: filesystem
+    // access, denied reads, ancestor protections and network rules are unchanged.
+    assert_eq!(
+        escalated_policy.replacen(
+            &format!("\n{MACOS_SEATBELT_APPROVED_ESCALATION_POLICY}"),
+            "",
+            1
+        ),
+        default_policy
+    );
+    // Same -D parameters, so the excluded (denied) paths are identical.
+    assert_eq!(default_args[2..], escalated_args[2..]);
+}
+
+#[test]
+fn approved_escalation_policy_names_no_credential_or_installed_browser_service() {
+    let policy = MACOS_SEATBELT_APPROVED_ESCALATION_POLICY;
+    for forbidden in [
+        "securityd",
+        "SecurityServer",
+        "trustd",
+        "keychain",
+        "com.apple.Safari",
+        "com.google.Chrome.",
+        "windowserver",
+        "tccd",
+        "launchservicesd",
+        "com.microsoft.edgemac",
+        "(allow file-write* (subpath",
+    ] {
+        assert!(
+            !policy.contains(forbidden),
+            "approved escalation block must not contain {forbidden}"
+        );
+    }
+    // The only writable path it adds is the Simulator's own log directory, and the
+    // only extra readable (and mappable) paths are the sealed Simulator runtime images.
+    assert_eq!(policy.matches("(allow file-write*").count(), 1);
+    assert!(policy.contains("Library/Logs/CoreSimulator/"));
+    assert_eq!(policy.matches("(allow file-read*").count(), 1);
+    assert!(policy.contains("file-map-executable"));
+    assert!(policy.contains("cryptexd/mnt/com\\.apple\\.[A-Za-z]+\\.SimulatorRuntime-"));
+}
+
+#[test]
+fn approved_escalation_lets_simctl_reach_core_simulator_and_default_does_not() {
+    let simctl = vec![
+        "/usr/bin/xcrun".to_string(),
+        "simctl".to_string(),
+        "list".to_string(),
+        "devices".to_string(),
+        "available".to_string(),
+    ];
+    let unsandboxed = Command::new(&simctl[0]).args(&simctl[1..]).output();
+    let has_devices = |bytes: &[u8]| {
+        let text = String::from_utf8_lossy(bytes);
+        text.contains("iPhone") || text.contains("iPad")
+    };
+    let Ok(unsandboxed) = unsandboxed else {
+        eprintln!("skipping simctl check: xcrun is unavailable");
+        return;
+    };
+    if !unsandboxed.status.success() || !has_devices(&unsandboxed.stdout) {
+        eprintln!("skipping simctl check: this host has no available simulator devices");
+        return;
+    }
+    let run = |approved: bool| {
+        Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+            .args(escalation_test_args(approved, simctl.clone()))
+            .output()
+            .expect("run simctl under seatbelt")
+    };
+    let default = run(false);
+    if !default.status.success()
+        && String::from_utf8_lossy(&default.stderr)
+            .contains("sandbox-exec: sandbox_apply: Operation not permitted")
+    {
+        eprintln!("skipping simctl check: nested Seatbelt is unavailable");
+        return;
+    }
+    assert!(
+        !(default.status.success() && has_devices(&default.stdout)),
+        "the default profile must not reach CoreSimulator"
+    );
+    let escalated = run(true);
+    assert!(
+        escalated.status.success() && has_devices(&escalated.stdout),
+        "approved escalation should list simulator devices: {}",
+        String::from_utf8_lossy(&escalated.stderr)
     );
 }
 

@@ -505,20 +505,23 @@ impl<'a> SandboxAttempt<'a> {
         let network = self.network_proxy(network);
         let mut request = self
             .manager
-            .transform(SandboxTransformRequest {
-                command,
-                permissions: self.permissions,
-                workspace_roots: None,
-                runtime_readable_paths: &[],
-                selection: SandboxSelection::Explicit(self.sandbox),
-                enforce_managed_network: self.enforce_managed_network,
-                environment_id,
-                network,
-                sandbox_policy_cwd: self.sandbox_cwd,
-                sandbox_exe: self.sandbox_exe.map(std::path::PathBuf::as_path),
-                use_legacy_landlock: self.use_legacy_landlock,
-                windows_sandbox_level: self.windows_sandbox_level,
-            })?
+            .transform_with_override(
+                SandboxTransformRequest {
+                    command,
+                    permissions: self.permissions,
+                    workspace_roots: None,
+                    runtime_readable_paths: &[],
+                    selection: SandboxSelection::Explicit(self.sandbox),
+                    enforce_managed_network: self.enforce_managed_network,
+                    environment_id,
+                    network,
+                    sandbox_policy_cwd: self.sandbox_cwd,
+                    sandbox_exe: self.sandbox_exe.map(std::path::PathBuf::as_path),
+                    use_legacy_landlock: self.use_legacy_landlock,
+                    windows_sandbox_level: self.windows_sandbox_level,
+                },
+                self.sandbox_override,
+            )?
             .into_command_request();
         request.sandbox_override = self.sandbox_override;
         let workspace_roots = self
