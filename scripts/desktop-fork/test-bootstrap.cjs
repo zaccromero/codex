@@ -20,14 +20,12 @@ try {
     else process.env.CODEX_CLI_PATH = inherited;
     const resources = path.join(receipt.candidateApp, 'Contents/Resources');
     const mockProcess = { resourcesPath: resources, env: process.env };
-    const appPaths = {};
     function load(id) {
       if (id === 'node:os') return { homedir: () => home };
-      if (id === 'electron') return { app: { getVersion: () => receipt.sourceVersion,
-        setPath: (name, value) => { appPaths[name] = value; } } };
       if (id === path.join(resources, 'drako-independent-bootstrap.cjs')) {
-        vm.runInNewContext(fs.readFileSync(id, 'utf8'), { process: mockProcess, require: load });
-        return {};
+        const module = { exports: {} };
+        vm.runInNewContext(fs.readFileSync(id, 'utf8'), { process: mockProcess, require: load, module });
+        return module.exports;
       }
       return require(id);
     }
@@ -37,7 +35,8 @@ try {
     assert.equal(process.env.CODEX_CLI_PATH, path.join(runtimeRoot, 'bin/codex'));
     if (receipt.independent) {
       assert.equal(process.env.CODEX_HOME, path.join(home, 'Library/Application Support/DrakoCodex/codex-home'));
-      assert.equal(appPaths.userData, path.join(home, 'Library/Application Support/DrakoCodex/desktop-profile'));
+      assert.equal(process.env.CODEX_ELECTRON_USER_DATA_PATH,
+        path.join(home, 'Library/Application Support/DrakoCodex/desktop-profile'));
       assert.equal(process.env.CODEX_SPARKLE_ENABLED, 'false');
     }
     const version = cp.execFileSync(process.env.CODEX_CLI_PATH, ['--version'], { encoding: 'utf8' }).trim();

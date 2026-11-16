@@ -9,9 +9,64 @@ import plistlib
 import shutil
 import struct
 
+INTEGRITY_SENTINEL = b'AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A'
+INTEGRITY_SLOT_SIZE = 34
+
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def electron_asar_integrity_digest(integrity):
+    """Match Electron Packager's sorted key/algorithm/hash digest."""
+    digest = hashlib.sha256()
+    for key in sorted(integrity):
+        entry = integrity[key]
+        algorithm = entry.get('algorithm')
+        entry_hash = entry.get('hash')
+        if not isinstance(algorithm, str) or not isinstance(entry_hash, str):
+            raise ValueError(f'Invalid ElectronAsarIntegrity entry: {key}')
+        digest.update(key.encode())
+        digest.update(algorithm.encode())
+        digest.update(entry_hash.encode())
+    return digest.digest()
+
+
+def codex_framework_binary(app):
+    matches = [path for path in (app / 'Contents/Frameworks').rglob('Codex Framework')
+               if path.is_file() and not path.is_symlink()]
+    if len(matches) != 1:
+        raise ValueError(f'Expected one Codex Framework binary, found {len(matches)}')
+    return matches[0]
+
+
+def framework_integrity_slots(data):
+    positions = []
+    start = 0
+    while True:
+        position = data.find(INTEGRITY_SENTINEL, start)
+        if position < 0:
+            break
+        slot = position + len(INTEGRITY_SENTINEL)
+        if slot + INTEGRITY_SLOT_SIZE > len(data):
+            raise ValueError('Truncated Electron integrity slot')
+        positions.append(slot)
+        start = slot + INTEGRITY_SLOT_SIZE
+    return positions
+
+
+def patch_framework_integrity(path, digest):
+    if len(digest) != 32:
+        raise ValueError('Electron integrity digest must be 32 bytes')
+    data = bytearray(path.read_bytes())
+    positions = framework_integrity_slots(data)
+    if not positions:
+        raise ValueError('Electron integrity sentinel not found in Codex Framework')
+    payload = b'\x01\x01' + digest
+    for position in positions:
+        data[position:position + INTEGRITY_SLOT_SIZE] = payload
+    path.write_bytes(data)
+    return len(positions)
 
 
 def read_archive(data):
@@ -102,8 +157,10 @@ def main():
               b'.activateSelection(require("node:path").join(require("node:os").homedir(),'
               b'"Library/Application Support/DrakoCodex/runtime.json"),require("electron").app.getVersion());\n')
     if args.independent:
+        desktop_version = json.dumps(info['CFBundleShortVersionString']).encode()
         prefix = (b'/* Drako persistent fork runtime selection v1 */\n'
-                  b'require(require("node:path").join(process.resourcesPath,"drako-independent-bootstrap.cjs"));\n')
+                  b'require(require("node:path").join(process.resourcesPath,"drako-independent-bootstrap.cjs"))'
+                  b'.activate(' + desktop_version + b');\n')
     patched, header_hash, main_entry = patch_archive(archive, prefix)
     output.mkdir(parents=True)
     candidate = output / ('Drako Codex.app' if args.independent else 'ChatGPT.app')
@@ -128,6 +185,8 @@ def main():
             profile.unlink()
     info['ElectronAsarIntegrity']['Resources/app.asar']['hash'] = header_hash
     (candidate / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
+    integrity_digest = electron_asar_integrity_digest(info['ElectronAsarIntegrity'])
+    integrity_slots = patch_framework_integrity(codex_framework_binary(candidate), integrity_digest)
     manifest_file = output / 'runtime.json'
     manifest_file.write_text(json.dumps(manifest, indent=2) + '\n')
     manifest_file.chmod(0o600)
@@ -139,6 +198,8 @@ def main():
                'mainEntry': main_entry, 'candidateApp': str(candidate),
                'manifest': str(manifest_file), 'runtime': manifest,
                'sourceRuntime': source_runtime,
+               'electronAsarIntegrityDigest': integrity_digest.hex(),
+               'electronAsarIntegritySlots': integrity_slots,
                'independent': args.independent,
                'launchPerformed': False, 'liveActivationVerified': False}
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')

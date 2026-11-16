@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 import plistlib
 
-from build_candidate import read_archive, entries
+from build_candidate import (INTEGRITY_SLOT_SIZE, codex_framework_binary,
+                             electron_asar_integrity_digest, entries,
+                             framework_integrity_slots, read_archive)
 
 
 def contents(data):
@@ -49,6 +51,15 @@ def main():
     assert (b'drako-independent-bootstrap.cjs' if receipt.get('independent') else b'.activateSelection(') in prefix
     info = plistlib.loads((candidate / 'Contents/Info.plist').read_bytes())
     assert info['ElectronAsarIntegrity']['Resources/app.asar']['hash'] == digest
+    framework = codex_framework_binary(candidate).read_bytes()
+    framework_digest = electron_asar_integrity_digest(info['ElectronAsarIntegrity'])
+    slots = framework_integrity_slots(framework)
+    assert slots, 'Electron integrity sentinel missing from Codex Framework'
+    expected_slot = b'\x01\x01' + framework_digest
+    assert all(framework[position:position + INTEGRITY_SLOT_SIZE] == expected_slot
+               for position in slots), 'Codex Framework Electron integrity digest mismatch'
+    assert receipt['electronAsarIntegrityDigest'] == framework_digest.hex()
+    assert receipt['electronAsarIntegritySlots'] == len(slots)
     assert (candidate / 'Contents/Resources/drako-runtime-selector.cjs').read_bytes() == Path(__file__).with_name('runtime-selector.cjs').read_bytes()
     if receipt.get('independent'):
         assert info['CFBundleIdentifier'] == 'ai.drako.codex.desktop'
@@ -58,6 +69,8 @@ def main():
     (args.output / 'verified-bootstrap-prefix.cjs').write_bytes(prefix)
     print(json.dumps({'archiveFilesVerified': len(after), 'onlyBootstrapChanged': True,
                       'headerAndBlockHashesValid': True, 'sourceArchiveUnchanged': True,
+                      'archivePlistFrameworkIntegrityValid': True,
+                      'frameworkIntegritySlots': len(slots),
                       'desktopLaunched': False}))
 
 

@@ -1,9 +1,14 @@
 import hashlib
 import json
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 
-from build_candidate import patch_archive, read_archive, entries
+from build_candidate import (INTEGRITY_SENTINEL, electron_asar_integrity_digest,
+                             entries, framework_integrity_slots,
+                             patch_archive, patch_framework_integrity,
+                             read_archive)
 
 
 def archive_fixture():
@@ -42,6 +47,31 @@ class ArchiveTests(unittest.TestCase):
         data = archive_fixture()
         with self.assertRaisesRegex(ValueError, 'integrity mismatch'):
             patch_archive(data[:-1] + b'X', b'prefix;')
+
+    def test_electron_integrity_digest_is_sorted_and_framework_slots_are_patched(self):
+        integrity = {
+            'Resources/z.asar': {'algorithm': 'SHA256', 'hash': 'z-hash'},
+            'Resources/app.asar': {'algorithm': 'SHA256', 'hash': 'app-hash'},
+        }
+        expected = hashlib.sha256(
+            b'Resources/app.asarSHA256app-hashResources/z.asarSHA256z-hash').digest()
+        self.assertEqual(electron_asar_integrity_digest(integrity), expected)
+        with tempfile.TemporaryDirectory() as temporary:
+            framework = Path(temporary) / 'Codex Framework'
+            framework.write_bytes(b'prefix' + INTEGRITY_SENTINEL + b'\0' * 34 +
+                                  b'middle' + INTEGRITY_SENTINEL + b'\0' * 34)
+            self.assertEqual(patch_framework_integrity(framework, expected), 2)
+            patched = framework.read_bytes()
+            self.assertEqual(len(framework_integrity_slots(patched)), 2)
+            for position in framework_integrity_slots(patched):
+                self.assertEqual(patched[position:position + 34], b'\x01\x01' + expected)
+
+    def test_missing_framework_integrity_sentinel_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            framework = Path(temporary) / 'Codex Framework'
+            framework.write_bytes(b'not an Electron framework')
+            with self.assertRaisesRegex(ValueError, 'sentinel not found'):
+                patch_framework_integrity(framework, b'\0' * 32)
 
 
 if __name__ == '__main__':
