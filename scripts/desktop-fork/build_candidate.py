@@ -9,6 +9,8 @@ import plistlib
 import shutil
 import struct
 
+from vendor_components import component_snapshot, is_preserved
+
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -88,6 +90,7 @@ def main():
     info = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
     if info.get('CFBundleIdentifier') != 'com.openai.codex':
         raise ValueError('Unexpected source application identity')
+    preserved = component_snapshot(source)
     archive = (source / 'Contents/Resources/app.asar').read_bytes()
     _, _, raw = read_archive(archive)
     expected = info['ElectronAsarIntegrity']['Resources/app.asar']
@@ -125,7 +128,8 @@ def main():
                     'SUFeedURL', 'SUPublicEDKey'):
             info.pop(key, None)
         for profile in candidate.rglob('embedded.provisionprofile'):
-            profile.unlink()
+            if not is_preserved(candidate, profile):
+                profile.unlink()
     info['ElectronAsarIntegrity']['Resources/app.asar']['hash'] = header_hash
     (candidate / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     manifest_file = output / 'runtime.json'
@@ -140,6 +144,7 @@ def main():
                'manifest': str(manifest_file), 'runtime': manifest,
                'sourceRuntime': source_runtime,
                'independent': args.independent,
+               'preservedVendorComponents': preserved,
                'launchPerformed': False, 'liveActivationVerified': False}
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     print(json.dumps(receipt, indent=2))

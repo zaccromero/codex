@@ -6,6 +6,8 @@ from pathlib import Path
 import plistlib
 import subprocess
 
+from vendor_components import is_preserved, verify_preserved
+
 MACHO = {b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf',
          b'\xfe\xed\xfa\xce', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca',
          b'\xca\xfe\xba\xbf'}
@@ -23,7 +25,9 @@ def main():
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     if info['CFBundleIdentifier'] != 'ai.drako.codex.desktop':
         raise ValueError('Unexpected bundle identity')
-    if list(app.rglob('embedded.provisionprofile')):
+    expected = receipt.get('preservedVendorComponents')
+    verify_preserved(app, expected)
+    if any(not is_preserved(app, p) for p in app.rglob('embedded.provisionprofile')):
         raise ValueError('Vendor provisioning profiles must not be claimed')
     entitlements = output / 'independent-entitlements.plist'
     entitlements.write_bytes(plistlib.dumps({
@@ -35,7 +39,7 @@ def main():
     }))
     files = []
     for file in app.rglob('*'):
-        if file.is_symlink() or not file.is_file():
+        if is_preserved(app, file) or file.is_symlink() or not file.is_file():
             continue
         with file.open('rb') as stream:
             if stream.read(4) in MACHO:
@@ -47,7 +51,7 @@ def main():
         subprocess.run(command + [str(target)], check=True, capture_output=True)
     for file in sorted(files, key=lambda p: len(p.parts), reverse=True):
         sign(file, executable=True)
-    bundles = [p for p in app.rglob('*') if p.is_dir() and not p.is_symlink()
+    bundles = [p for p in app.rglob('*') if p.is_dir() and not p.is_symlink() and not is_preserved(app, p)
                and p.suffix in ('.app', '.framework', '.xpc', '.appex', '.bundle')]
     for bundle in sorted(bundles, key=lambda p: len(p.parts), reverse=True):
         # Resource-only bundles have no signable executable.
@@ -66,7 +70,8 @@ def main():
     (output / 'runtime.json').write_bytes(manifest_file.read_bytes())
     sign(app, executable=True)
     subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-    receipt.update(status='adhoc-signed-independent-not-installed', runtime=manifest,
+    verify_preserved(app, expected)
+    receipt.update(vendorComponentsPreserved=True, status='adhoc-signed-independent-not-installed', runtime=manifest,
                    signatureVerified=True, notarized=False, launchPerformed=False,
                    liveActivationVerified=False)
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')

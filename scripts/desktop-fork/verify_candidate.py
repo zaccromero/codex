@@ -7,6 +7,7 @@ from pathlib import Path
 import plistlib
 
 from build_candidate import read_archive, entries
+from vendor_components import verify_preserved
 
 
 def contents(data):
@@ -32,6 +33,8 @@ def main():
     receipt = json.loads((args.output / 'receipt.json').read_text())
     source = Path(receipt['sourceApp'])
     candidate = Path(receipt['candidateApp'])
+    verify_preserved(source, receipt.get('preservedVendorComponents'))
+    verify_preserved(candidate, receipt.get('preservedVendorComponents'))
     original = (source / 'Contents/Resources/app.asar').read_bytes()
     assert hashlib.sha256(original).hexdigest() == receipt['sourceArchiveSha256'], 'Source app changed'
     before, _ = contents(original)

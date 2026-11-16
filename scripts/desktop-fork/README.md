@@ -18,8 +18,12 @@ notifications, computer use and macOS restoration remain unverified. The older
 vendor-identity candidate is preserved as an unsigned investigation artifact;
 it must not be installed as a replacement for ChatGPT.
 
-No OpenAI signing identity, shared keychain groups, app groups or provisioning
-profiles are claimed by the independent signature. It uses fresh state under
+The independent Drako signature claims no OpenAI identity, shared keychain
+groups, app groups or provisioning profiles. Unmodified bundled `cua_node` and
+`codex-cli` components retain their original signatures and embedded profiles;
+they are not re-signed as Drako. Build receipts snapshot their bytes, modes and
+symlink targets, and signing and verification reject changes. Old candidates
+whose bundled signatures were replaced must be rebuilt from the signed source. It uses fresh state under
 `~/Library/Application Support/DrakoCodex/{desktop-profile,codex-home}`. Existing
 ChatGPT credentials, chats, preferences and running processes are untouched.
 Vendor URL/document handlers are not registered, so OAuth/deep-link compatibility
@@ -93,3 +97,8 @@ can rebuild from scratch. Vendor upgrades require rebuilding and revalidating
 this integration. The code does not change the current ChatGPT launch agent or
 switch the owner's default app. Those are separate activation steps after the
 independent desktop has passed its live acceptance checks.
+
+Preserving bundled signatures fixes destructive re-signing, but does not certify
+native control. The fork CLI remains ad-hoc signed and is still selected for the
+backend and browser-use runtime. Native peer acceptance and helper startup must
+be tested live; do not disable peer authorization to obtain a passing result.
