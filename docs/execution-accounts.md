@@ -25,7 +25,9 @@ name, UID, primary GID, home and non-administrator group membership. It uses the
 system `sudo -n` to re-exec only the packaged executor as that numeric UID/GID.
 It clears the environment both before sudo and after switching UID, then sets
 only HOME, USER, LOGNAME and the provisioned PATH. Direct target-account startup
-rejects extra or mismatched environment values. A missing OS authorization fails without prompting on the RPC
+ignores only the `__CF_USER_TEXT_ENCODING` marker synthesized by CoreFoundation;
+that marker is not forwarded to workloads. All other extra or mismatched
+environment values are rejected. A missing OS authorization fails without prompting on the RPC
 stream, opening another transport or retrying unsandboxed.
 
 After entry, both real/effective UID and GID must match. The server's existing
@@ -65,9 +67,11 @@ file denials and native network policy are not removed to enable account entry.
 No raw client may replace the trusted controller or invent approval evidence.
 
 Process environments are rebuilt from the four provisioned values; owner and
-request environment values are not forwarded. This initial implementation
-refuses shell snapshots, custom argv0 and managed-network proxy requests. These
-unsupported modes fail closed instead of losing isolation or proxy enforcement.
+request environment values are not forwarded. Executor-local managed proxies
+use the existing network-policy callbacks and native sandbox enforcement.
+The account advertises proxy launch and review-domain support, but no credential
+masking. Requests for owner-side proxy contexts, credential providers, proxies
+without native enforcement, shell snapshots or custom argv0 fail closed.
 The account service disables configuration loading and capability prewarming.
 It advertises no unsupported optional capabilities. Its RPC surface contains
 only initialization, identity and process lifecycle
@@ -83,9 +87,9 @@ its default environment:
 ```toml
 [[environments]]
 id = "milo-ci"
-program = "/Library/CodexAccounts/runtime/bin/codex-exec-server"
+program = "/Library/CodexAccounts/runtime-94d1ca6a711e/bin/codex-exec-server"
 args = ["--listen", "stdio", "--execution-account-policy", "/Library/CodexAccounts/milo-ci.json"]
-cwd = "/"
+cwd = "/Users/milo-ci/ci/milo-ci-v1"
 ```
 
 Do not copy owner credentials or authentication files to the account. Install a
@@ -98,6 +102,60 @@ or replaced through the supported host activation path. This feature cannot
 remove a sandbox inherited by its own parent.
 
 ## Acceptance evidence
+
+### Pinned installer and native evidence (2026-11-16)
+
+`scripts/install/execution_account_sudo.py` upgrades the existing root-owned
+`runtime-eb342b19` package to the isolated candidate whose SHA-256 is
+`94d1ca6a711e8e7f676e9dd1d4a86eb5714f5a8830485c58cab6558fa74663c2`.
+It checks account identity, the existing root-owned policy, host registration,
+the saved coding profile, all 16 private-path and 11 secret-glob denials, and
+template access. Its fixed paths and hash are specific to this reviewed build;
+rebuilding requires a new reviewed digest, not a caller-supplied override.
+
+Run `check` for nonmutating preflight. Run `activate` as the owner with Python
+3.11 or newer to install the immutable package and one exact sudoers bootstrap
+grant through administrator authentication. It validates the rule with native
+`visudo`, refuses existing foreign files, and rolls back its new rule if global
+validation fails. The grant has no wildcard, general shell, root target or
+SETENV. A root-owned readable receipt contains hashes only, allowing later
+activation retries without another administrator prompt. Startup is still
+checked on every activation; a stale receipt cannot turn a failed bootstrap
+into success.
+
+After installation, `activate` starts the account executor with immediate EOF,
+exercising account identity, groups and environment admission without issuing
+workloads or approval RPCs. Only after this succeeds does it atomically change
+the selected environment's program in `environments.toml`; unrelated entries
+and the coding configuration remain unchanged. A connection through the host
+is still required to verify workload admission, effective protections and CI.
+The installer neither restarts the desktop nor labels CI as passed.
+
+For the owned checkout, the complete administrator activation entry point is:
+
+```sh
+/opt/homebrew/bin/python3.11 -I /Users/zacc/code/.worktrees/codex/account-installer-network-1366/scripts/install/execution_account_sudo.py activate
+```
+
+Rollback: run the same script with `deactivate` as the owner to restore only the
+prior environment program, then `rollback` through administrator execution to
+remove only its matching sudoers rule and receipt. Packages and policy remain
+available for inspection; no runtime or unrelated files are deleted. Do not
+remove a grant while the host is still using that executor.
+
+The supported activation attempt reached `sudo: a password is required`;
+installation, host activation and account workload verification are therefore
+still incomplete. No host registration changed in that failed attempt.
+
+Milo's native process observations no longer depend on setuid `ps`: a bounded
+`libproc` helper queries the selected group and process metadata, preserves
+inspection errors, and cross-checks the independent sysctl birth identity at
+microsecond precision. The native process suite passed 42/42 in an explicit
+Seatbelt profile retaining all 27 denials; 11 synthetic secret fixtures were
+denied and three templates were readable. The full affected environment suite
+passed 144/144. These are owner-account development checks, not dedicated-account
+canonical CI. No denial or system executable was modified. The canonical
+helper's separate `pgrep` admission check still needs dedicated-account proof.
 
 Before calling the mechanism active, verify all of the following:
 

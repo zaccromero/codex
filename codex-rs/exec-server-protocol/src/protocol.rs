@@ -200,6 +200,15 @@ pub struct EnvironmentCapabilities {
 }
 
 impl EnvironmentCapabilities {
+    /// Retain process-local network enforcement without credential or filesystem services.
+    pub fn process_only(&self) -> Self {
+        Self {
+            network_proxy_launch: self.network_proxy_launch,
+            network_proxy_review_domains: self.network_proxy_review_domains,
+            ..Self::default()
+        }
+    }
+
     /// Network proxy features available through this executor.
     pub fn network_proxy(&self) -> NetworkProxyCapabilities {
         NetworkProxyCapabilities {
