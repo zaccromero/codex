@@ -21,16 +21,21 @@ Options:
           'sandbox_permissions=["disk-full-read-access"]'` - `-c
           shell_environment_policy.inherit=all`
 
+      --execution-account-policy <PATH>
+          Administrator-provisioned dedicated macOS account; requires --listen
+          stdio. No credentials or config overrides are accepted in this startup
+          mode
+
       --enable <FEATURE>
           Enable a feature (repeatable). Equivalent to `-c features.<name>=true`
-
-      --strict-config
-          Error out when config.toml contains fields that are not recognized by
-          this version of Codex
 
       --disable <FEATURE>
           Disable a feature (repeatable). Equivalent to `-c
           features.<name>=false`
+
+      --strict-config
+          Error out when config.toml contains fields that are not recognized by
+          this version of Codex
 
       --linux-sandbox-pid-namespace <MODE>
           Linux PID namespace: isolate (default) or inherit. Inherit allows

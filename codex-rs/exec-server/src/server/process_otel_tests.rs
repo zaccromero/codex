@@ -435,7 +435,7 @@ fn exported_sandbox_denial_keeps_launch_identity_and_separate_exit_outcome() {
                 let stdout: Vec<u8> = output.chunks.iter()
                     .filter(|chunk| chunk.stream == crate::protocol::ExecOutputStream::Stdout)
                     .flat_map(|chunk| chunk.chunk.0.iter().copied()).collect();
-                assert_eq!(stdout, PRIVATE_PAYLOAD.as_bytes());
+                assert_eq!(stdout, PRIVATE_PAYLOAD.as_bytes(), "sandbox child result: {output:?}");
                 assert_eq!((output.exit_code, output.sandbox_denied), if index == 0 {
                     (Some(0), false)
                 } else {
@@ -695,7 +695,7 @@ impl TestServer {
         let (outgoing, notifications) = mpsc::channel(/*buffer*/ 128);
         Self {
             sessions: SessionRegistry::new(ExecServerTelemetry::default()),
-            router: build_router(),
+            router: build_router(false),
             outgoing,
             _notifications: notifications,
         }

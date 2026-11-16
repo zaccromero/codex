@@ -54,6 +54,13 @@ pub async fn run_main_with_telemetry(
     request_dispatch_mode: RequestDispatchMode,
     websocket_auth: WebsocketAuthSettings,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if runtime_paths.execution_account.is_some() && !matches!(listen_url, "stdio" | "stdio://") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "dedicated account executor requires private stdio transport",
+        )
+        .into());
+    }
     std::sync::LazyLock::force(&build_identity::PROVIDER_ID);
     transport::run_transport(
         listen_url,
@@ -79,6 +86,29 @@ mod tests {
     use super::run_main_with_telemetry;
     use crate::ExecServerRuntimeOptions;
     use crate::ExecServerTelemetry;
+
+    #[tokio::test]
+    async fn execution_account_rejects_network_listeners_before_binding() {
+        let mut runtime =
+            ExecServerRuntimeOptions::new(std::env::current_exe().unwrap(), None).unwrap();
+        runtime.execution_account = Some(
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 1, "username": "ci-user", "uid": 65001, "gid": 20,
+                "home": "/Users/ci-user", "root": "/Users/ci-user/ci", "path": "/usr/bin:/bin"
+            }))
+            .unwrap(),
+        );
+        for listener in ["ws://127.0.0.1:0", "ws://0.0.0.0:0"] {
+            let error = super::run_main(
+                listener,
+                runtime.clone(),
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.to_string().contains("private stdio"));
+        }
+    }
 
     #[tokio::test]
     async fn telemetry_entrypoint_emits_root_span() {

@@ -8,6 +8,8 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 /// Paths and sandbox settings initialized when creating an executor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecServerRuntimeOptions {
+    /// Host-startup-only account routing. Never supplied by a process request.
+    pub execution_account: Option<crate::execution_account::ExecutionAccountPolicy>,
     /// Stable path to the Codex executable used to launch hidden helper modes.
     pub codex_self_exe: AbsolutePathBuf,
     /// Path to the Linux sandbox helper alias used when the platform sandbox
@@ -47,6 +49,7 @@ impl ExecServerRuntimeOptions {
         codex_linux_sandbox_exe: Option<PathBuf>,
     ) -> std::io::Result<Self> {
         Ok(Self {
+            execution_account: None,
             linux_sandbox_pid_namespace: LinuxSandboxPidNamespace::default(),
             linux_sandbox_transparent_tcp: false,
             proxy_private_ips_via_upstream: false,

@@ -178,7 +178,9 @@ impl ExecServerHandler {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(session);
         Ok(InitializeResponse {
             session_id,
-            environment_info: Some(local_environment_info()),
+            environment_info: Some(local_environment_info(
+                self.runtime_paths.execution_account.is_some(),
+            )),
         })
     }
 
@@ -213,7 +215,9 @@ impl ExecServerHandler {
 
     pub(crate) fn environment_info(&self) -> Result<EnvironmentInfo, JSONRPCErrorError> {
         self.require_initialized_for("environment info")?;
-        Ok(local_environment_info())
+        Ok(local_environment_info(
+            self.runtime_paths.execution_account.is_some(),
+        ))
     }
 
     pub(crate) async fn environment_config_read(

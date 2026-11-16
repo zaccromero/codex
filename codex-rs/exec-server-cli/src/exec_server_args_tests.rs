@@ -18,6 +18,29 @@ fn exec_server_from_args(args: &[&str]) -> ExecServerCommand {
 }
 
 #[test]
+fn execution_account_flag_is_explicit_and_does_not_change_defaults() {
+    assert!(
+        exec_server_from_args(&["--listen", "stdio"])
+            .execution_account_policy
+            .is_none()
+    );
+    let args = [
+        "--listen",
+        "stdio",
+        "--execution-account-policy",
+        "/Library/Codex/ci.json",
+    ];
+    let command = exec_server_from_args(&args);
+    assert_eq!(
+        command.execution_account_policy.as_deref(),
+        Some(std::path::Path::new("/Library/Codex/ci.json"))
+    );
+    #[cfg(target_os = "macos")]
+    codex_exec_server::ExecutionAccountPolicy::validate_startup_args(&args.map(str::to_owned))
+        .unwrap();
+}
+
+#[test]
 fn exec_server_defaults_preserve_local_and_noise_modes() {
     for args in [
         vec![],

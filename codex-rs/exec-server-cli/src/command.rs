@@ -24,6 +24,10 @@ use crate::exec_server_telemetry::ParentLifetime;
 /// [EXPERIMENTAL] Run the standalone exec-server service.
 #[derive(Debug, Parser)]
 pub struct ExecServerCommand {
+    /// Administrator-provisioned dedicated macOS account; requires --listen stdio.
+    /// No credentials or config overrides are accepted in this startup mode.
+    #[arg(long, value_name = "PATH")]
+    execution_account_policy: Option<std::path::PathBuf>,
     #[command(subcommand)]
     command: Option<ExecServerSubcommand>,
 
@@ -195,6 +199,22 @@ impl ExecServerCommand {
         arg0_paths: &Arg0DispatchPaths,
         root_config_overrides: &CliConfigOverrides,
     ) -> anyhow::Result<()> {
+        // Account entry is deliberately before config/auth loading. Only the
+        // controller's private stdio pipe crosses into this service; job launch
+        // still requires a separately approved sandbox on every request.
+        let execution_account = if let Some(path) = &self.execution_account_policy {
+            let args = std::env::args().skip(1).collect::<Vec<_>>();
+            codex_exec_server::ExecutionAccountPolicy::validate_startup_args(&args)?;
+            let policy = codex_exec_server::ExecutionAccountPolicy::from_file(path)?;
+            let executable = arg0_paths
+                .codex_self_exe
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Codex executable path is not configured"))?;
+            policy.enter(executable, path)?;
+            Some(policy)
+        } else {
+            None
+        };
         let strict_config = self.strict_config;
         self.validate_remote_transport()?;
         let enable_cloud_config = self.should_load_cloud_config();
@@ -214,6 +234,18 @@ impl ExecServerCommand {
         .with_linux_sandbox_transparent_tcp(self.linux_sandbox_transparent_tcp)
         .with_proxy_private_ips_via_upstream(self.proxy_private_ips_via_upstream);
         runtime_paths.tcp_upstream_proxy = self.tcp_upstream_proxy.take();
+        runtime_paths.execution_account = execution_account;
+        if runtime_paths.execution_account.is_some() {
+            // No account or owner config, authentication, exporters or discovery
+            // is needed for the narrowly scoped stdio process service.
+            return codex_exec_server::run_main(
+                "stdio",
+                runtime_paths,
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            )
+            .await
+            .map_err(anyhow::Error::from_boxed);
+        }
         // Config loading below owns error handling (non-strict stdio can proceed
         // without config). Never retain other startup flags in the executor.
         if let Ok(overrides) = root_config_overrides.parse_overrides() {

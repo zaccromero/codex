@@ -115,6 +115,32 @@ pub(crate) async fn prepare_exec_request_with_telemetry(
     credential_brokers: &RemoteCredentialBrokerCache,
     telemetry: &ProcessTelemetry,
 ) -> Result<PreparedExecRequest, JSONRPCErrorError> {
+    let execution_account = runtime_paths.and_then(|paths| paths.execution_account.as_ref());
+    let env = if let Some(account) = execution_account {
+        account
+            .admit_cwd(&native_path(&params.cwd, "cwd")?)
+            .map_err(sandbox_preparation_error)?;
+        let context = params.sandbox.as_ref().ok_or_else(|| {
+            invalid_params("execution account requires an approved native sandbox".into())
+        })?;
+        account
+            .admit(
+                context.sandbox_override,
+                context
+                    .permissions
+                    .file_system_sandbox_policy()
+                    .has_denied_read_restrictions(),
+                params.shell_snapshot.is_some(),
+                params.arg0.is_some(),
+                params.enforce_managed_network
+                    || params.network_proxy.is_some()
+                    || params.managed_network.is_some(),
+            )
+            .map_err(sandbox_preparation_error)?;
+        account.clean_environment()
+    } else {
+        env
+    };
     if let Some(sandbox) = params.sandbox.as_ref()
         && sandbox.windows_sandbox_selection == WindowsSandboxSelection::Mxc
     {
@@ -260,6 +286,11 @@ pub(crate) async fn prepare_exec_request_with_telemetry(
         })?
         .into_command_request();
     request.sandbox_override = sandbox_context.sandbox_override;
+    if execution_account.is_some() && request.sandbox != SandboxType::MacosSeatbelt {
+        return Err(sandbox_preparation_error(
+            "execution account requires the native macOS sandbox; no fallback is allowed",
+        ));
+    }
     crate::run_integrity_checks(&request).await;
     let windows_sandbox = if request.sandbox == SandboxType::WindowsRestrictedToken {
         let permissions = request.permission_profile;
