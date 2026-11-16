@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--identity', default='-', help='Apple signing identity SHA-1; default is ad-hoc (not launch-certified)')
+    parser.add_argument('--local-development', action='store_true', help='Explicitly allow library validation exception in this independent app only')
     args = parser.parse_args()
     output = args.output.resolve(strict=True)
     receipt = json.loads((output / 'receipt.json').read_text())
@@ -27,13 +28,16 @@ def main():
     if list(app.rglob('embedded.provisionprofile')):
         raise ValueError('Vendor provisioning profiles must not be claimed')
     entitlements = output / 'independent-entitlements.plist'
-    entitlements.write_bytes(plistlib.dumps({
+    entitlement_values = {
         'com.apple.security.cs.allow-jit': True,
         'com.apple.security.cs.allow-unsigned-executable-memory': True,
         'com.apple.security.device.audio-input': True,
         'com.apple.security.device.camera': True,
         'com.apple.security.automation.apple-events': True,
-    }))
+    }
+    if args.local_development:
+        entitlement_values['com.apple.security.cs.disable-library-validation'] = True
+    entitlements.write_bytes(plistlib.dumps(entitlement_values))
     files = []
     for file in app.rglob('*'):
         if file.is_symlink() or not file.is_file():
@@ -75,6 +79,7 @@ def main():
         raise ValueError('Requested Apple identity did not produce a TeamIdentifier')
     status = ('adhoc' if args.identity == '-' else 'apple-identity') + '-signed-independent-not-installed'
     receipt.update(status=status, runtime=manifest, signingTeam=team,
+                   appOnlyLibraryValidationException=args.local_development,
                    signatureVerified=True, notarized=False, launchPerformed=False,
                    liveActivationVerified=False)
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')

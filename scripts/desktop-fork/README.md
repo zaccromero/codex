@@ -12,12 +12,14 @@ independent build is named **Drako Codex**, bundle ID `ai.drako.codex.desktop`.
 It embeds the complete fork runtime and uses an app-relative manifest, so copying
 or restoring this app does not require a login launcher or environment override.
 
-The independent app was installed at `~/Applications/Drako Codex.app`. Its
-ad-hoc signature verified, but live launch failed under library validation because
-the main executable and framework have no Apple Team ID. The app did not reach
-bootstrap or sign-in. The owner chose to retain library validation and use a real
-Apple Development identity. No valid identity was available at the last check.
-Desktop sign-in, UI, notifications, computer use and restoration remain unverified. The older
+The independent app is installed at `~/Applications/Drako Codex.app`. The owner
+explicitly approved the app-only library-validation exception for local development.
+Re-sign with `--local-development` to reproduce that choice; the default remains
+without the exception. Gatekeeper and the installed ChatGPT app are unchanged.
+Strict signature validation passes, and the framework Team-ID failure is resolved.
+Launching from the agent execution context still aborts on macOS GUI/Mach bootstrap
+registration. Desktop-session launch, sign-in and actual app-server identity are
+pending verification. The older
 vendor-identity candidate is preserved as an unsigned investigation artifact;
 it must not be installed as a replacement for ChatGPT.
 
@@ -31,8 +33,9 @@ must be tested before calling sign-in supported. No credentials are migrated.
 The independent bootstrap sets the vendor's `CODEX_SPARKLE_ENABLED=false` gate.
 Updates are manual rebuilds of this integration; the vendor updater must not
 replace it with an unmodified distribution. This does not change the installed
-vendor app's updater. Local code signing preserves hardened runtime/JIT support;
-Gatekeeper and library validation are not disabled.
+vendor app's updater. Local code signing preserves hardened runtime/JIT support. The explicit local
+development option disables library validation only for this independent app and
+its helpers; system-wide Gatekeeper and ChatGPT protections remain unchanged.
 
 ## Selection contract
 
@@ -59,7 +62,7 @@ python3 -B scripts/desktop-fork/build_candidate.py --independent \
   --source-app /Applications/ChatGPT.app \
   --runtime-package '/absolute/path/to/verified/fork/package' \
   --output .drako/artifacts/persistent-desktop-candidate-new
-python3 -B scripts/desktop-fork/sign_independent.py --identity APPLE_IDENTITY_SHA1 \
+python3 -B scripts/desktop-fork/sign_independent.py --local-development \
   .drako/artifacts/persistent-desktop-candidate-new
 python3 -B scripts/desktop-fork/verify_candidate.py \
   .drako/artifacts/persistent-desktop-candidate-new
