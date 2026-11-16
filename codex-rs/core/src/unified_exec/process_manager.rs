@@ -906,6 +906,11 @@ impl UnifiedExecProcessManager {
         context: &UnifiedExecContext,
         request: WriteStdinRequest<'_>,
     ) -> Result<ExecCommandToolOutput, UnifiedExecError> {
+        if request.terminate && !request.input.is_empty() {
+            return Err(UnifiedExecError::process_failed(
+                "terminate cannot be combined with stdin input".into(),
+            ));
+        }
         let process_id = request.terminal.process_id;
         let locked_process = &request.terminal.process;
         if let Some(call_id) = trace_id(&request.terminal.call_id) {
@@ -924,6 +929,15 @@ impl UnifiedExecProcessManager {
                 .ok_or(UnifiedExecError::UnknownProcessId { process_id })?;
             entry.stdin_approval(context, request.input, strict_auto_review)?
         };
+        // The terminal was resolved from this session's store and its Arc identity
+        // checked above. Terminate through the owning executor, never a caller PID
+        // or a shell in a different sandbox. Keep the entry until output is drained.
+        if request.terminate {
+            locked_process
+                .terminate_confirmed()
+                .await
+                .map_err(|err| UnifiedExecError::process_failed(err.to_string()))?;
+        }
         if let Some((approval, approval_reason)) = approval {
             let unreviewable_input_error = || {
                 UnifiedExecError::StdinApproval(ToolError::Rejected(

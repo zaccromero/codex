@@ -532,8 +532,8 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
 }
 
 #[test]
-fn global_literal_basename_denies_survive_directory_moves() {
-    for name in [".env", "credentials", "secret+file.txt"] {
+fn global_basename_denies_survive_directory_moves() {
+    for (pattern, name) in [(".env", ".env"), ("credentials", "credentials"), ("secret+file.txt", "secret+file.txt"), (".env.*.local", ".env.fixture.local"), ("*.env", "fixture.env"), ("{.env,credentials}", "credentials")] {
         let temp_dir = TempDir::new().expect("temp dir");
         let root = temp_dir.path().canonicalize().expect("canonical temp dir");
         let workspace = root.join("workspace");
@@ -564,7 +564,7 @@ fn global_literal_basename_denies_survive_directory_moves() {
         let mut policy = restricted_write_policy(&[&workspace, &destination]);
         policy.entries.push(FileSystemSandboxEntry::new(
             FileSystemPath::GlobPattern {
-                pattern: format!("/**/{name}"),
+                pattern: format!("/**/{pattern}"),
             },
             FileSystemAccessMode::Deny,
         ));
@@ -641,7 +641,7 @@ denied /bin/mv "$workspace" "$destination/workspace"
 }
 
 #[test]
-fn scoped_or_nonliteral_basename_denies_still_block_directory_moves() {
+fn scoped_basename_denies_still_block_directory_moves() {
     let temp_dir = TempDir::new().expect("temp dir");
     let workspace = temp_dir.path().canonicalize().expect("canonical temp dir");
     fs::create_dir(workspace.join("source")).expect("source directory");
@@ -651,8 +651,6 @@ fn scoped_or_nonliteral_basename_denies_still_block_directory_moves() {
         format!("{}/**/.env", workspace.display()),
         format!("{}/*/.env", workspace.display()),
         "/**/source/.env".to_string(),
-        "/**/*.env".to_string(),
-        "/**/{.env,credentials}".to_string(),
     ] {
         let mut policy = restricted_write_policy(&[&workspace]);
         policy.entries.push(FileSystemSandboxEntry::new(

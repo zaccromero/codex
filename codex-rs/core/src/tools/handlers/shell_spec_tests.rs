@@ -102,6 +102,10 @@ fn write_stdin_tool_matches_expected_spec() {
             )),
         ),
         (
+            "terminate".to_string(),
+            JsonSchema::boolean(Some("Stop this session's owned process through its executor and return final output. Cannot be combined with chars. Defaults to false.".to_string())),
+        ),
+        (
             "chars".to_string(),
             JsonSchema::string(Some(
                 "Bytes to write to stdin. Defaults to empty, which polls without writing.".to_string(),

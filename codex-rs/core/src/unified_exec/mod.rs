@@ -125,6 +125,7 @@ pub(crate) struct TerminalSession {
 pub(crate) struct WriteStdinRequest<'a> {
     pub terminal: &'a TerminalSession,
     pub input: &'a str,
+    pub terminate: bool,
     pub yield_time_ms: u64,
     pub max_output_tokens: Option<usize>,
     pub truncation_policy: TruncationPolicy,
