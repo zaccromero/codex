@@ -94,3 +94,6 @@ CHANGELOG.ignore.md
 # Python bytecode files
 __pycache__/
 *.pyc
+
+# Local desktop integration candidates contain vendor binaries, never source.
+/.drako/artifacts/persistent-desktop-candidate*/
