@@ -532,8 +532,56 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
 }
 
 #[test]
-fn global_literal_basename_denies_survive_directory_moves() {
-    for name in [".env", "credentials", "secret+file.txt"] {
+fn global_suffix_policy_protects_matches_and_preserves_templates() {
+    let policy = super::build_seatbelt_unreadable_glob_policy(&["/**/.env.*.local".to_string()]);
+    assert!(!policy.contains("file-write-unlink"), "{policy}");
+    let read_rule = policy.lines().next().expect("read denial");
+    let expression = read_rule
+        .strip_prefix("(deny file-read* (regex #\"")
+        .and_then(|line| line.strip_suffix("\"))"))
+        .expect("read denial regex");
+    assert!(policy.contains(&format!("(deny file-write* (regex #\"{expression}\"))")));
+    let regex = regex_lite::Regex::new(expression).expect("valid generated regex");
+    for protected in [
+        "/.env..local",
+        "/workspace/.env.development.local",
+        "/relocated/ancestor/.env.development.local",
+        "/created/later/.env.production.local",
+        "/directory/.env.production.local/child",
+    ] {
+        assert!(regex.is_match(protected), "{protected}");
+    }
+    for allowed in [
+        "/workspace/empty",
+        "/workspace/build/output.js",
+        "/workspace/.env.example",
+        "/workspace/.env.development.local.example",
+        "/workspace/.env./nested/file.local",
+    ] {
+        assert!(!regex.is_match(allowed), "{allowed}");
+    }
+}
+
+#[test]
+fn scoped_suffix_policy_keeps_ancestor_unlink_denials() {
+    for pattern in ["/workspace/**/.env.*.local", "/**/.env.**.local"] {
+        let policy = super::build_seatbelt_unreadable_glob_policy(&[pattern.to_string()]);
+        assert!(policy.contains("file-read*"), "{policy}");
+        assert!(policy.contains("file-write*"), "{policy}");
+        assert!(policy.contains("file-write-unlink"), "{policy}");
+    }
+}
+
+#[test]
+fn global_basename_denies_survive_directory_moves() {
+    for (basename_rule, name) in [
+        (".env", ".env"),
+        ("credentials", "credentials"),
+        ("secret+file.txt", "secret+file.txt"),
+        (".env.*", ".env.local"),
+        (".env.*.local", ".env.development.local"),
+        (".env.*.local", ".env..local"),
+    ] {
         let temp_dir = TempDir::new().expect("temp dir");
         let root = temp_dir.path().canonicalize().expect("canonical temp dir");
         let workspace = root.join("workspace");
@@ -564,7 +612,7 @@ fn global_literal_basename_denies_survive_directory_moves() {
         let mut policy = restricted_write_policy(&[&workspace, &destination]);
         policy.entries.push(FileSystemSandboxEntry::new(
             FileSystemPath::GlobPattern {
-                pattern: format!("/**/{name}"),
+                pattern: format!("/**/{basename_rule}"),
             },
             FileSystemAccessMode::Deny,
         ));
@@ -579,7 +627,7 @@ fn global_literal_basename_denies_survive_directory_moves() {
                 "/bin/sh".to_string(),
                 "-euc".to_string(),
                 r#"
-workspace=$1 destination=$2 name=$3
+workspace=$1 destination=$2 name=$3 basename_rule=$4
 denied() {
     if "$@" > /dev/null 2>&1; then
         echo "unexpectedly allowed: $*" >&2
@@ -590,6 +638,11 @@ denied() {
 /bin/rmdir "$workspace/empty"
 /bin/mv "$workspace/staging" "$workspace/output"
 /bin/rm -r "$workspace/output"
+if [ "$basename_rule" = '.env.*.local' ]; then
+    printf 'template' > "$workspace/.env.example"
+    /bin/cat "$workspace/.env.example"
+    /bin/rm "$workspace/.env.example"
+fi
 denied /bin/cat "$workspace/protected/$name"
 denied /bin/cat "$workspace/alias"
 denied /bin/cat "$workspace/directory/$name/child"
@@ -612,6 +665,7 @@ denied /bin/mv "$workspace" "$destination/workspace"
                 workspace.display().to_string(),
                 destination.display().to_string(),
                 name.to_string(),
+                basename_rule.to_string(),
             ],
             file_system_sandbox_policy: &policy,
             network_sandbox_policy: NetworkSandboxPolicy::Restricted,
@@ -653,6 +707,8 @@ fn scoped_or_nonliteral_basename_denies_still_block_directory_moves() {
         "/**/source/.env".to_string(),
         "/**/*.env".to_string(),
         "/**/{.env,credentials}".to_string(),
+        format!("{}/**/.env.*.local", workspace.display()),
+        "/**/.env.**.local".to_string(),
     ] {
         let mut policy = restricted_write_policy(&[&workspace]);
         policy.entries.push(FileSystemSandboxEntry::new(
