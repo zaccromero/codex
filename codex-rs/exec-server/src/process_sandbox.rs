@@ -109,7 +109,22 @@ fn supports_credential_snapshot(params: &ExecParams) -> bool {
 #[tracing::instrument(
     name = "codex.exec_server.process_prepare_sandbox",
     skip_all,
-    fields(process.id = trace_process_id(params.process_id.as_str())),
+    fields(
+        process.id = trace_process_id(params.process_id.as_str()),
+        network.managed_required = params.enforce_managed_network,
+        network.proxy_launch_supplied = params.network_proxy.is_some(),
+        network.prepared_context_supplied = params.managed_network.is_some(),
+        network.sandbox_supplied = params.sandbox.is_some(),
+        network.enabled = params.sandbox.as_ref().is_some_and(|sandbox| {
+            sandbox.permissions.network_sandbox_policy().is_enabled()
+        }),
+        network.denied_reads = params.sandbox.as_ref().is_some_and(|sandbox| {
+            sandbox
+                .permissions
+                .file_system_sandbox_policy()
+                .has_denied_read_restrictions()
+        }),
+    ),
 )]
 pub(crate) async fn prepare_exec_request_with_telemetry(
     params: &ExecParams,

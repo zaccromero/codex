@@ -1,0 +1,86 @@
+name: Issue 19 compatible runtime candidate
+
+"on":
+  push:
+    branches: [ci/issue19-runtime-candidate]
+    paths:
+      - .github/workflows/issue19-runtime-candidate.yml
+      - scripts/issue19_runtime_candidate.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue19-runtime-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    if: github.repository == 'zaccromero/codex'
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_TARGET_DIR: ${{ runner.temp }}/issue19-target
+      ISSUE19_OUTPUT: ${{ runner.temp }}/issue19-candidate
+    steps:
+      - name: Check out the exact bundled-runtime source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: zaccromero/codex
+          ref: d2c035639366e0bf2c316aa2065c24aabc12bcdc
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out the reviewed build harness separately
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          path: .runtime-harness
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify the source and add non-sensitive diagnostics
+        run: python3 .runtime-harness/scripts/issue19_runtime_candidate.py apply --output "$ISSUE19_OUTPUT"
+
+      - name: Install the pinned Rust compiler
+        uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8
+        with:
+          toolchain: 1.95.0
+          components: rustfmt
+
+      - name: Verify pinned V8 build artifacts
+        uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: aarch64-apple-darwin
+
+      - name: Verify Rust formatting
+        working-directory: codex-rs
+        run: cargo fmt --all -- --check
+
+      - name: Test retained filesystem and network protections
+        run: python3 .runtime-harness/scripts/issue19_runtime_candidate.py checks --output "$ISSUE19_OUTPUT"
+
+      - name: Build the compatible runtime and helper executables
+        working-directory: codex-rs
+        run: cargo build --locked -p codex-cli -p codex-exec-server-cli -p codex-code-mode-host
+
+      - name: Verify architecture, version and source provenance
+        run: python3 .runtime-harness/scripts/issue19_runtime_candidate.py package --output "$ISSUE19_OUTPUT" --target "$CARGO_TARGET_DIR"
+
+      - name: Preserve the tested candidate and evidence
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: issue19-macos-arm64-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/issue19-candidate/runtime.tar.gz
+            ${{ runner.temp }}/issue19-candidate/runtime.tar.gz.sha256
+            ${{ runner.temp }}/issue19-candidate/manifest.json
+            ${{ runner.temp }}/issue19-candidate/checks.json
+          if-no-files-found: error
+          retention-days: 7
