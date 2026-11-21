@@ -45,6 +45,8 @@ function activateSelection(manifestPath, desktopVersion) {
   // The app's selector reads this before creating any local app-server.
   // A stale inherited override cannot supersede the persisted selection.
   process.env.CODEX_CLI_PATH = selected.executable;
+  // The local executor reads a separate override; leave no second selector.
+  process.env.CODEX_TPP_LOCAL_EXECUTOR_CLI_PATH = selected.executable;
   delete process.env.CODEX_APP_RUNTIME_CLI_PATH;
   return selected;
 }

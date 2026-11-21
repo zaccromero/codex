@@ -65,6 +65,13 @@ def main():
         assert info['CFBundleIdentifier'] == 'ai.drako.codex.desktop'
         assert 'CFBundleURLTypes' not in info
         assert (candidate / 'Contents/Resources/drako-independent-bootstrap.cjs').read_bytes() == Path(__file__).with_name('independent-bootstrap.cjs').read_bytes()
+        # The bundle must start through the launcher, beside the untouched shell.
+        assert info['CFBundleExecutable'] == receipt['launcher'] == 'DrakoCodex'
+        assert not (candidate / 'Contents/CodeResources').exists(), 'Vendor notarization ticket retained'
+        macos = candidate / 'Contents/MacOS'
+        assert sorted(p.name for p in macos.iterdir()) == ['ChatGPT', 'DrakoCodex']
+        assert (macos / 'ChatGPT').read_bytes()[:4] == (source / 'Contents/MacOS/ChatGPT').read_bytes()[:4]
+        assert receipt['launcherSourceSha256'] == hashlib.sha256(Path(__file__).with_name('launcher.c').read_bytes()).hexdigest()
     # Export only our prefix for a separate Node smoke test, never vendor bootstrap.
     (args.output / 'verified-bootstrap-prefix.cjs').write_bytes(prefix)
     print(json.dumps({'archiveFilesVerified': len(after), 'onlyBootstrapChanged': True,

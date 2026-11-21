@@ -8,9 +8,22 @@ from pathlib import Path
 import plistlib
 import shutil
 import struct
+import subprocess
 
 INTEGRITY_SENTINEL = b'AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A'
 INTEGRITY_SLOT_SIZE = 34
+LAUNCHER_NAME = 'DrakoCodex'
+
+
+def build_launcher(destination):
+    """Compile the main executable that starts the shell on its own profile."""
+    source = Path(__file__).with_name('launcher.c')
+    subprocess.run(['/usr/bin/clang', '-arch', 'arm64', '-mmacosx-version-min=13.0', '-std=c11',
+                    '-O2', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(destination)],
+                   check=True, capture_output=True,
+                   env={'PATH': '/usr/bin:/bin', 'TMPDIR': str(destination.parent)})
+    destination.chmod(0o755)
+    return sha(destination.read_bytes())
 
 
 def sha(data):
@@ -176,6 +189,13 @@ def main():
         info['CFBundleIdentifier'] = 'ai.drako.codex.desktop'
         info['CFBundleName'] = 'Drako Codex'
         info['CFBundleDisplayName'] = 'Drako Codex'
+        # Finder cannot pass switches, and the shell takes its single-instance
+        # lock in the vendor profile unless one names ours. See launcher.c.
+        real_executable = info['CFBundleExecutable']
+        if real_executable != 'ChatGPT' or not (candidate / 'Contents/MacOS' / real_executable).is_file():
+            raise ValueError('Unexpected desktop main executable')
+        launcher_sha = build_launcher(candidate / 'Contents/MacOS' / LAUNCHER_NAME)
+        info['CFBundleExecutable'] = LAUNCHER_NAME
         # Do not register competing vendor URL schemes, document handlers or
         # vendor privileged helpers for a separate local application.
         for key in ('CFBundleURLTypes', 'CFBundleDocumentTypes', 'SMPrivilegedExecutables',
@@ -183,6 +203,9 @@ def main():
             info.pop(key, None)
         for profile in candidate.rglob('embedded.provisionprofile'):
             profile.unlink()
+        # The copied notarization ticket belongs to the vendor's signature and
+        # cannot describe this locally signed bundle.
+        (candidate / 'Contents/CodeResources').unlink(missing_ok=True)
     info['ElectronAsarIntegrity']['Resources/app.asar']['hash'] = header_hash
     (candidate / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     integrity_digest = electron_asar_integrity_digest(info['ElectronAsarIntegrity'])
@@ -201,6 +224,8 @@ def main():
                'electronAsarIntegrityDigest': integrity_digest.hex(),
                'electronAsarIntegritySlots': integrity_slots,
                'independent': args.independent,
+               **({'launcher': LAUNCHER_NAME, 'launcherSourceSha256': sha(Path(__file__).with_name('launcher.c').read_bytes()),
+                   'launcherUnsignedSha256': launcher_sha} if args.independent else {}),
                'launchPerformed': False, 'liveActivationVerified': False}
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     print(json.dumps(receipt, indent=2))
