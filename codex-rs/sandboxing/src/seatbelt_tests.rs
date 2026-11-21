@@ -532,8 +532,14 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
 }
 
 #[test]
-fn global_literal_basename_denies_survive_directory_moves() {
-    for name in [".env", "credentials", "secret+file.txt"] {
+fn global_basename_denies_survive_directory_moves() {
+    for (basename_rule, name) in [
+        (".env", ".env"),
+        ("credentials", "credentials"),
+        ("secret+file.txt", "secret+file.txt"),
+        (".env.*", ".env.local"),
+        (".env.*", ".env."),
+    ] {
         let temp_dir = TempDir::new().expect("temp dir");
         let root = temp_dir.path().canonicalize().expect("canonical temp dir");
         let workspace = root.join("workspace");
@@ -564,7 +570,7 @@ fn global_literal_basename_denies_survive_directory_moves() {
         let mut policy = restricted_write_policy(&[&workspace, &destination]);
         policy.entries.push(FileSystemSandboxEntry::new(
             FileSystemPath::GlobPattern {
-                pattern: format!("/**/{name}"),
+                pattern: format!("/**/{basename_rule}"),
             },
             FileSystemAccessMode::Deny,
         ));
