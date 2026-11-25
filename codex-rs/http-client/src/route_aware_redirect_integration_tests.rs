@@ -18,6 +18,26 @@ use crate::RouteAwareClientPool;
 
 #[tokio::test]
 async fn route_aware_pool_re_resolves_redirects_and_logs_only_final_outcome() {
+    const CHILD_ENV: &str = "CODEX_HTTP_CLIENT_REDIRECT_SUCCESS_LOG_TEST";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        // Other Bazel tests change tracing subscribers while this request is in flight.
+        let (_, module) = module_path!().split_once("::").expect("test module path");
+        let test_name =
+            format!("{module}::route_aware_pool_re_resolves_redirects_and_logs_only_final_outcome");
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args(["--exact", &test_name, "--nocapture"])
+            .env(CHILD_ENV, "1")
+            .output()
+            .expect("redirect logging test subprocess should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "isolated redirect test failed\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    }
+
     let (proxy_addr, proxy_thread) =
         spawn_response("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
     let (redirect_addr, redirect_thread) = spawn_response(

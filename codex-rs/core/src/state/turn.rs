@@ -1,5 +1,7 @@
 //! Turn-scoped state, input waiters, and active turn metadata.
 
+pub(crate) mod human_command;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
@@ -116,14 +118,30 @@ pub(crate) struct TurnState {
 }
 
 pub(crate) struct PendingApproval {
-    pub(crate) sender: oneshot::Sender<ReviewDecision>,
+    native_attempt: Option<Arc<human_command::HumanCommandAttempt>>,
+    native_review_taken: bool,
+    sender: oneshot::Sender<human_command::ApprovalReply>,
     pub(crate) kind: codex_protocol::approvals::ExecApprovalKind,
     // A yielded cell can emit a prompt for its original turn while a later turn services it.
     pub(crate) turn_id: String,
 }
 
 impl PendingApproval {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
+
+    pub(crate) fn respond(self, decision: ReviewDecision) {
+        let decision = self.validate(decision);
+        let _ = self
+            .sender
+            .send(human_command::ApprovalReply::Decision(decision));
+    }
+
     pub(crate) fn validate(&self, decision: ReviewDecision) -> ReviewDecision {
+        if self.native_review_taken && decision == ReviewDecision::Approved {
+            return ReviewDecision::denied("The native owner review holds this approval.");
+        }
         if self.kind == codex_protocol::approvals::ExecApprovalKind::HumanCommand
             && !matches!(
                 decision,
@@ -198,9 +216,10 @@ impl TurnState {
     pub(crate) fn insert_pending_approval(
         &mut self,
         key: String,
-        tx: oneshot::Sender<ReviewDecision>,
+        tx: oneshot::Sender<human_command::ApprovalReply>,
         kind: codex_protocol::approvals::ExecApprovalKind,
         turn_id: String,
+        native_attempt: Option<human_command::HumanCommandAttempt>,
     ) -> Option<PendingApproval> {
         self.pending_approvals
             .lock()
@@ -208,6 +227,8 @@ impl TurnState {
             .insert(
                 key,
                 PendingApproval {
+                    native_attempt: native_attempt.map(Arc::new),
+                    native_review_taken: false,
                     sender: tx,
                     kind,
                     turn_id,

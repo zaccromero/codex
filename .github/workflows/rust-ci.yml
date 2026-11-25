@@ -172,8 +172,9 @@ jobs:
     name: Argument comment lint - ${{ matrix.name }}
     # Keep this Bazel job advisory until the public build and cache rollout is verified.
     continue-on-error: true
-    runs-on: ${{ matrix.runs_on || matrix.runner }}
-    timeout-minutes: ${{ matrix.timeout_minutes }}
+    runs-on: ${{ !github.event.repository.fork && matrix.runs_on || matrix.runner }}
+    # A cold local build on the fork's standard runners needs the same budget as Clippy.
+    timeout-minutes: ${{ github.event.repository.fork && 180 || matrix.timeout_minutes }}
     needs: changed
     environment:
       name: bazel
@@ -186,10 +187,10 @@ jobs:
             runner: ubuntu-24.04
             timeout_minutes: 30
           - name: macOS
-            runner: macos-15-xlarge
+            runner: ${{ github.event.repository.fork && 'macos-15' || 'macos-15-xlarge' }}
             timeout_minutes: 30
           - name: Windows
-            runner: windows-x64
+            runner: windows-latest
             timeout_minutes: 30
             runs_on:
               group: ${{ github.event.repository.name }}-runners

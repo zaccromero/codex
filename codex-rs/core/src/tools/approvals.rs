@@ -1,6 +1,7 @@
 //! Central approval policy-stage execution and reviewer routing.
 //! Managed human checkpoints cannot be satisfied by hooks, automated review, or reusable approvals.
 
+use crate::HumanCommandDetails;
 use crate::command_canonicalization::canonicalize_command_for_approval;
 use crate::exec_policy::prompt_is_rejected_by_policy;
 use crate::guardian::GuardianNetworkAccessTrigger;
@@ -14,6 +15,8 @@ use crate::mcp_tool_call::request_mcp_tool_user_approval;
 use crate::sandboxing::SandboxPermissions;
 use crate::session::NetworkApprovalTurn;
 use crate::session::session::Session;
+use crate::session::turn_context::TurnEnvironment;
+use crate::state::HumanCommandAttempt;
 use crate::tools::hook_names::HookToolName;
 use crate::tools::runtimes::apply_patch::ApplyPatchApprovalKey;
 use crate::tools::runtimes::unified_exec::UnifiedExecApprovalKey;
@@ -552,10 +555,20 @@ impl Session {
         action: ApprovalAction,
         ctx: ApprovalContext,
     ) -> ApprovalResult {
+        self.request_approval_for_attempt(action, ctx, /*executor*/ None)
+            .await
+    }
+
+    pub(super) async fn request_approval_for_attempt(
+        self: &Arc<Self>,
+        action: ApprovalAction,
+        ctx: ApprovalContext,
+        executor: Option<&TurnEnvironment>,
+    ) -> ApprovalResult {
         self.request_approval_with_user_prompt(
             &action,
             &ctx,
-            self.request_user_approval(&action, &ctx),
+            self.request_user_approval(&action, &ctx, executor),
         )
         .await
     }
@@ -788,6 +801,7 @@ impl Session {
         &self,
         action: &ApprovalAction,
         ctx: &ApprovalContext,
+        executor: Option<&TurnEnvironment>,
     ) -> ApprovalResolution {
         let decision = match action {
             ApprovalAction::ExecCommand {
@@ -796,6 +810,8 @@ impl Session {
                 cwd,
                 additional_permissions,
                 justification,
+                sandbox_permissions,
+                tty,
                 proposed_execpolicy_amendment,
                 ..
             } => {
@@ -806,6 +822,32 @@ impl Session {
                     .or_else(|| justification.clone());
                 let human_once = ctx.requires_human_approval();
                 let request = || async {
+                    let approval_id = human_once.then(|| uuid::Uuid::new_v4().to_string());
+                    let native_attempt = approval_id.as_ref().and_then(|id| {
+                        let executor = executor?;
+                        if ctx.review_context.turn().session_source.is_non_root_agent()
+                            || executor.selection.environment_id != *environment_id
+                            || !executor.environment().is_remote()
+                        {
+                            return None;
+                        }
+                        Some(HumanCommandAttempt {
+                            details: HumanCommandDetails {
+                                approval_id: id.clone(),
+                                turn_id: ctx.review_context.turn().sub_id.clone(),
+                                call_id: ctx.call_id.clone(),
+                                environment_id: environment_id.clone(),
+                                command: command.clone(),
+                                cwd: cwd.clone(),
+                                sandbox_permissions: *sandbox_permissions,
+                                additional_permissions: additional_permissions.clone(),
+                                tty: *tty,
+                                reason: reason.clone(),
+                            },
+                            cancelled: ctx.cancellation_token.clone()?,
+                            executor: Arc::downgrade(&executor.attachment),
+                        })
+                    });
                     self.request_command_approval(
                         ctx.review_context.turn(),
                         if human_once {
@@ -813,10 +855,11 @@ impl Session {
                         } else {
                             ExecApprovalKind::Command
                         },
+                        native_attempt,
                         ctx.review_context.model_context(),
                         ctx.call_id.clone(),
                         Some(&ctx.call_id),
-                        human_once.then(|| uuid::Uuid::new_v4().to_string()),
+                        approval_id,
                         Some(environment_id.clone()),
                         command.clone(),
                         cwd.clone(),
@@ -877,6 +920,7 @@ impl Session {
                 self.request_command_approval(
                     ctx.review_context.turn(),
                     ExecApprovalKind::WriteStdin,
+                    /*native_attempt*/ None,
                     ctx.review_context.model_context(),
                     id.clone(),
                     Some(&ctx.call_id),
@@ -956,6 +1000,7 @@ impl Session {
                 self.request_command_approval(
                     ctx.review_context.turn(),
                     ExecApprovalKind::Command,
+                    /*native_attempt*/ None,
                     ctx.review_context.model_context(),
                     ctx.call_id.clone(),
                     trigger.as_ref().map(|trigger| trigger.call_id.as_str()),
@@ -999,3 +1044,7 @@ fn record_resolution(ctx: &ApprovalContext, resolution: &ApprovalResolution) {
 #[cfg(all(test, unix))]
 #[path = "approvals_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "native_human_command_tests.rs"]
+mod native_human_command_tests;

@@ -25,15 +25,15 @@ jobs:
     # PRs use the sharded Windows cross-compiled test jobs below. Post-merge
     # pushes to main also run the native Windows test job for broader Windows
     # signal without putting PR latency back on the critical path.
-    timeout-minutes: 120
+    timeout-minutes: ${{ github.event.repository.fork && 180 || 120 }}
     strategy:
       fail-fast: false
       matrix:
         include:
           # macOS
-          - os: macos-15-xlarge
+          - os: &macos_runner ${{ github.event.repository.fork && 'macos-15' || 'macos-15-xlarge' }}
             target: aarch64-apple-darwin
-          - os: macos-15-xlarge
+          - os: *macos_runner
             target: x86_64-apple-darwin
 
           # Linux
@@ -144,7 +144,7 @@ jobs:
       contents: read
       id-token: write
     # Build and test Windows shards on separate Windows runners.
-    timeout-minutes: 90
+    timeout-minutes: &build_timeout ${{ github.event.repository.fork && 180 || 90 }}
     strategy:
       fail-fast: false
       matrix:
@@ -153,9 +153,7 @@ jobs:
           - 2
           - 3
           - 4
-    runs-on:
-      group: ${{ github.event.repository.name }}-runners
-      labels: ${{ github.event.repository.name }}-windows-x64
+    runs-on: ${{ github.event.repository.fork && 'windows-latest' || fromJSON(format('{{"group":"{0}-runners","labels":"{0}-windows-x64"}}', github.event.repository.name)) }}
     name: Bazel test on windows-latest for x86_64-pc-windows-gnullvm shard ${{ matrix.shard }}/4
     environment:
       name: bazel
@@ -357,7 +355,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 90
+    timeout-minutes: *build_timeout
     strategy:
       fail-fast: false
       matrix:
@@ -368,14 +366,14 @@ jobs:
           # that the Bazel test job uses.
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - os: macos-15-xlarge
+          - os: *macos_runner
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-gnullvm
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-x64
-    runs-on: ${{ matrix.runs_on || matrix.os }}
+    runs-on: ${{ !github.event.repository.fork && matrix.runs_on || matrix.os }}
     name: Bazel clippy on ${{ matrix.os }} for ${{ matrix.target }}
     environment:
       name: bazel
@@ -465,21 +463,21 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 90
+    timeout-minutes: *build_timeout
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - os: macos-15-xlarge
+          - os: *macos_runner
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-gnullvm
             runs_on:
               group: ${{ github.event.repository.name }}-runners
               labels: ${{ github.event.repository.name }}-windows-x64
-    runs-on: ${{ matrix.runs_on || matrix.os }}
+    runs-on: ${{ !github.event.repository.fork && matrix.runs_on || matrix.os }}
     name: Verify release build on ${{ matrix.os }} for ${{ matrix.target }}
     environment:
       name: bazel
