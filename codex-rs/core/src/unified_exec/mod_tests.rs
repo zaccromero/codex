@@ -880,7 +880,11 @@ print('child bound')
             "-c".to_string(),
             script.to_string(),
         ],
-        turn.cwd.clone(),
+        turn.initial_environments
+            .primary()
+            .expect("turn environment")
+            .cwd()
+            .to_abs_path()?,
         env,
     );
     request.managed_launch_binding = Some(binding);
