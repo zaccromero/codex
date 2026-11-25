@@ -833,15 +833,19 @@ async fn completed_pipe_commands_preserve_exit_code() -> anyhow::Result<()> {
 #[cfg(target_os = "macos")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_process_binds_live_child_to_one_launch_response() -> anyhow::Result<()> {
+    use codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV;
     use codex_exec_server::ManagedLaunchBinding;
     use codex_exec_server::ManagedLaunchClaims;
-    use codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV;
 
     let (_, turn) = make_session_and_context().await;
     let binding = ManagedLaunchBinding::new(ManagedLaunchClaims {
         helper: "/reviewed/materialize".to_string(),
         helper_sha256: "a".repeat(64),
-        argv: vec!["/reviewed/materialize".to_string(), "--head".to_string(), "b".repeat(40)],
+        argv: vec![
+            "/reviewed/materialize".to_string(),
+            "--head".to_string(),
+            "b".repeat(40),
+        ],
         https_proxy: "http://127.0.0.1:12345".to_string(),
         destination: "https://github.com/zaccromero/drako-os.git".to_string(),
         git_ref: "refs/pull/417/head".to_string(),
@@ -893,8 +897,11 @@ print('child bound')
         )
         .await?;
     if !process.has_exited() {
-        tokio::time::timeout(Duration::from_secs(5), process.cancellation_token().cancelled())
-            .await?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            process.cancellation_token().cancelled(),
+        )
+        .await?;
     }
     let output = UnifiedExecProcessManager::collect_output_until_deadline(
         process.output_handles(),
@@ -911,9 +918,9 @@ print('child bound')
 #[cfg(target_os = "macos")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn seatbelt_child_reaches_only_its_bound_launch_socket() -> anyhow::Result<()> {
+    use codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV;
     use codex_exec_server::ManagedLaunchBinding;
     use codex_exec_server::ManagedLaunchClaims;
-    use codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV;
     use codex_network_proxy::ManagedNetworkSandboxContext;
     use codex_protocol::models::PermissionProfile;
     use codex_protocol::permissions::FileSystemSandboxPolicy;
@@ -931,7 +938,11 @@ async fn seatbelt_child_reaches_only_its_bound_launch_socket() -> anyhow::Result
     let binding = ManagedLaunchBinding::new(ManagedLaunchClaims {
         helper: "/reviewed/materialize".to_string(),
         helper_sha256: "a".repeat(64),
-        argv: vec!["/reviewed/materialize".to_string(), "--head".to_string(), "b".repeat(40)],
+        argv: vec![
+            "/reviewed/materialize".to_string(),
+            "--head".to_string(),
+            "b".repeat(40),
+        ],
         https_proxy: "http://127.0.0.1:12345".to_string(),
         destination: "https://github.com/zaccromero/drako-os.git".to_string(),
         git_ref: "refs/pull/417/head".to_string(),
@@ -943,8 +954,14 @@ async fn seatbelt_child_reaches_only_its_bound_launch_socket() -> anyhow::Result
     let env = HashMap::from([
         ("HOME".to_string(), workspace.path().display().to_string()),
         ("PATH".to_string(), "/usr/bin:/bin".to_string()),
-        (MANAGED_LAUNCH_SOCKET_ENV.to_string(), binding.socket_path().to_string()),
-        ("DENIED_SOCKET".to_string(), denied_socket.display().to_string()),
+        (
+            MANAGED_LAUNCH_SOCKET_ENV.to_string(),
+            binding.socket_path().to_string(),
+        ),
+        (
+            "DENIED_SOCKET".to_string(),
+            denied_socket.display().to_string(),
+        ),
     ]);
     let script = r#"
 import errno, json, os, socket
@@ -1021,8 +1038,11 @@ print('seatbelt child bound and sibling denied')
         )
         .await?;
     if !process.has_exited() {
-        tokio::time::timeout(Duration::from_secs(5), process.cancellation_token().cancelled())
-            .await?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            process.cancellation_token().cancelled(),
+        )
+        .await?;
     }
     let output = UnifiedExecProcessManager::collect_output_until_deadline(
         process.output_handles(),
