@@ -426,6 +426,8 @@ pub(crate) struct SandboxAttempt<'a> {
     pub windows_sandbox_level: codex_protocol::config_types::WindowsSandboxLevel,
     pub network_denial_cancellation_token: Option<CancellationToken>,
     pub(crate) network_proxy: Option<&'a NetworkProxy>,
+    /// Set only by a fresh, user-resolved managed human command approval.
+    pub(crate) human_approved: bool,
 }
 
 pub(crate) fn executor_windows_sandbox_level(

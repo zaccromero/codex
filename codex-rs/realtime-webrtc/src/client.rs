@@ -198,6 +198,7 @@ impl VoiceHost {
             stdout_rx,
             stderr_rx,
             exit_rx,
+            ..
         } = codex_utils_pty::spawn_pipe_process(
             &path,
             &[],

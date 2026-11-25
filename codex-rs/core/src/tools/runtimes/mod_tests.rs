@@ -94,6 +94,21 @@ async fn test_network_proxy_with_config(
         .await
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn workload_cannot_supply_a_managed_launch_socket() {
+    let env = HashMap::from([
+        (
+            codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV.to_string(),
+            "/private/tmp/stale/binding.sock".to_string(),
+        ),
+        ("CUSTOM_ENV".to_string(), "kept".to_string()),
+    ]);
+    let result = exec_env_for_sandbox_permissions(&env, SandboxPermissions::UseDefault);
+    assert!(!result.contains_key(codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV));
+    assert_eq!(result.get("CUSTOM_ENV").map(String::as_str), Some("kept"));
+}
+
 #[tokio::test]
 async fn explicit_escalation_prepares_exec_without_managed_network() -> anyhow::Result<()> {
     let proxy = test_network_proxy().await?;
@@ -135,6 +150,7 @@ async fn explicit_escalation_prepares_exec_without_managed_network() -> anyhow::
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
         network_denial_cancellation_token: None,
         network_proxy: None,
+        human_approved: false,
     };
 
     let exec_request = attempt

@@ -551,6 +551,43 @@ impl<'a> ToolRuntime<UnifiedExecRequest<'_>, UnifiedExecAttempt> for UnifiedExec
         } else {
             command
         };
+        #[cfg(target_os = "macos")]
+        let mut command = command;
+        #[cfg(target_os = "macos")]
+        let mut managed_network_context = managed_network_context;
+        #[cfg(target_os = "macos")]
+        let managed_launch_binding = {
+            // A managed helper has no shell phase. Its sealed bytes run directly
+            // after this attempt's native human review, with a one-use socket
+            // bound to the actual proxy and child PID. Other commands keep the
+            // ordinary shell and proxy behavior.
+            let prepared_launch = crate::managed_launch::prepare(
+                &prepared.hook_command,
+                prepared.resolved.shell.use_login_shell,
+                prepared.tty,
+                attempt.human_approved,
+                attempt.sandbox,
+                managed_network,
+                &prepared.turn_environment.selection.environment_id,
+                &env,
+            )
+            .await
+            .map_err(ToolError::Rejected)?;
+            if let Some(prepared_launch) = prepared_launch {
+                let context = managed_network_context.as_mut().ok_or_else(|| {
+                    ToolError::Rejected("managed launch lacks a confined proxy".to_string())
+                })?;
+                context.allow_unix_sockets.push(prepared_launch.binding.socket_path().to_owned());
+                env.insert(
+                    codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV.to_string(),
+                    prepared_launch.binding.socket_path().to_string(),
+                );
+                command = prepared_launch.command;
+                Some(prepared_launch.binding)
+            } else {
+                None
+            }
+        };
         let sidecar_permissions = metrics_sidecar
             .as_ref()
             .map(PluginMetricsSidecar::additional_permissions);
@@ -576,6 +613,12 @@ impl<'a> ToolRuntime<UnifiedExecRequest<'_>, UnifiedExecAttempt> for UnifiedExec
             internal_permissions.as_ref(),
         );
         let executor_managed = self.uses_executor_managed_process_sandbox(req);
+        #[cfg(target_os = "macos")]
+        if managed_launch_binding.is_some() && executor_managed {
+            return Err(ToolError::Rejected(
+                "managed launch requires the direct local executor".to_string(),
+            ));
+        }
         let permissions = TerminalPermissions::for_launch(
             &prepared.turn_environment,
             &ctx.step_context.turn,
@@ -640,6 +683,20 @@ impl<'a> ToolRuntime<UnifiedExecRequest<'_>, UnifiedExecAttempt> for UnifiedExec
                 .await
         }
         .map_err(ToolError::Codex)?;
+        #[cfg(target_os = "macos")]
+        let mut request = request;
+        #[cfg(target_os = "macos")]
+        if managed_launch_binding.is_some()
+            && request.sandbox != codex_sandboxing::SandboxType::MacosSeatbelt
+        {
+            return Err(ToolError::Rejected(
+                "managed launch lost its network sandbox".to_string(),
+            ));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            request.managed_launch_binding = managed_launch_binding;
+        }
         let process = self
             .manager
             .open_session_with_exec_env(

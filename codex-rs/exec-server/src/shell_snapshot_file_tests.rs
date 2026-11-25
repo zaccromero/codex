@@ -49,6 +49,7 @@ async fn unnamed_snapshot_preserves_stdin_and_closes_read_only_carrier(
         mut stdout_rx,
         mut stderr_rx,
         exit_rx,
+        ..
     } = spawned;
     session.writer_sender().send(b"input\n".to_vec()).await?;
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {

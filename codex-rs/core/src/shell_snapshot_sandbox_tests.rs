@@ -50,6 +50,7 @@ async fn snapshot_failure_omits_credentials_and_stops_descendants(
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
         network_denial_cancellation_token: cancellation.clone(),
         network_proxy: None,
+        human_approved: false,
     };
     let sandbox = ShellSnapshotSandbox::new(
         &attempt, /*network*/ None, "local", /*additional_permissions*/ None,

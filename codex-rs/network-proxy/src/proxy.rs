@@ -1161,6 +1161,15 @@ impl NetworkProxy {
         self.state.add_denied_domain(host).await
     }
 
+    /// Check the live allowlist and deny policy before binding an approved
+    /// local helper to a destination. The proxy rechecks this on every dial.
+    pub async fn permits_destination(&self, host: &str, port: u16) -> Result<bool> {
+        Ok(matches!(
+            self.state.host_blocked(host, port).await?,
+            HostBlockDecision::Allowed
+        ))
+    }
+
     pub fn allow_local_binding(&self) -> bool {
         self.runtime_settings().allow_local_binding
     }
@@ -1917,6 +1926,25 @@ mod tests {
             command: None,
             exec_policy_hint: None,
         })
+    }
+
+    #[tokio::test]
+    async fn launch_destination_checks_current_proxy_policy() -> Result<()> {
+        let mut config = NetworkProxyConfig {
+            allow_local_binding: Some(true),
+            ..NetworkProxyConfig::default()
+        };
+        config.set_allowed_domains(vec!["github.com".to_string()]);
+        let proxy = NetworkProxy::builder()
+            .state(Arc::new(network_proxy_state_for_policy(config)))
+            .managed_by_codex(false)
+            .build()
+            .await?;
+        assert!(proxy.permits_destination("github.com", 443).await?);
+        assert!(!proxy.permits_destination("example.com", 443).await?);
+        proxy.add_denied_domain("github.com").await?;
+        assert!(!proxy.permits_destination("github.com", 443).await?);
+        Ok(())
     }
 
     #[tokio::test]

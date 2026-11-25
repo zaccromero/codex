@@ -362,6 +362,7 @@ impl UnifiedExecProcess {
             stdout_rx,
             stderr_rx,
             mut exit_rx,
+            ..
         } = spawned;
         let mut managed = Self::new(
             ProcessHandle::Local(Box::new(process_handle)),

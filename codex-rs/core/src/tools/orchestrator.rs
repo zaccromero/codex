@@ -101,6 +101,7 @@ impl ToolOrchestrator {
             network_proxy: network_approval
                 .as_ref()
                 .map(ActiveNetworkApproval::execution_proxy),
+            human_approved: attempt.human_approved,
         };
         let run_result = tool
             .run(req, &attempt_with_network_approval, &attempt_tool_ctx)
@@ -139,6 +140,7 @@ impl ToolOrchestrator {
         let strict_auto_review = turn_ctx.strict_auto_review_enabled();
         // 1) Approval
         let mut initial_approval_source = None;
+        let mut initial_human_approved = false;
 
         let environment = tool.turn_environment(req);
         let sandbox_manager = SandboxManager::new();
@@ -227,7 +229,10 @@ impl ToolOrchestrator {
                     .session
                     .request_approval(action, approval_ctx)
                     .await;
-                approval.result?;
+                let decision = approval.result?;
+                initial_human_approved = human_once
+                    && decision == ReviewDecision::Approved
+                    && approval.source == Some(ApprovalResolutionSource::User);
                 initial_approval_source = approval.source;
             }
         }
@@ -384,6 +389,7 @@ impl ToolOrchestrator {
             windows_sandbox_level: sandbox_config.windows_sandbox_level,
             network_denial_cancellation_token: None,
             network_proxy: None,
+            human_approved: initial_human_approved,
         };
 
         let initial_attempt_start = Instant::now();
@@ -499,6 +505,7 @@ impl ToolOrchestrator {
                     && !strict_auto_review
                     && tool.should_bypass_approval(approval_policy, retry_preapproved)
                     && network_approval_context.is_none();
+                let mut retry_human_approved = false;
                 if !bypass_retry_approval {
                     let approval_reason = match &requirement {
                         ExecApprovalRequirement::NeedsApproval { reason, .. }
@@ -546,11 +553,14 @@ impl ToolOrchestrator {
                             .await
                             .result?;
                     }
-                    tool_ctx
+                    let approval = tool_ctx
                         .session
                         .request_approval(action, approval_ctx)
-                        .await
-                        .result?;
+                        .await;
+                    let decision = approval.result?;
+                    retry_human_approved = human_once
+                        && decision == ReviewDecision::Approved
+                        && approval.source == Some(ApprovalResolutionSource::User);
                 }
 
                 let retry_sandbox_requested = !unsandboxed_allowed
@@ -593,6 +603,7 @@ impl ToolOrchestrator {
                     windows_sandbox_level: sandbox_config.windows_sandbox_level,
                     network_denial_cancellation_token: None,
                     network_proxy: None,
+                    human_approved: retry_human_approved,
                 };
 
                 // Second attempt.

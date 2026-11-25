@@ -504,6 +504,7 @@ async fn inactive_profiles_keep_snapshots_but_active_brokers_require_sandbox() -
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
         network_denial_cancellation_token: Some(cancellation.clone()),
         network_proxy: None,
+        human_approved: false,
     };
     let first_sandbox = ShellSnapshotSandbox::new(
         &attempt,

@@ -92,6 +92,7 @@ fn combine_spawned_output(
         stdout_rx,
         stderr_rx,
         exit_rx,
+        ..
     } = spawned;
     (
         session,
@@ -566,6 +567,7 @@ async fn pipe_process_can_expose_split_stdout_and_stderr() -> anyhow::Result<()>
         stdout_rx,
         stderr_rx,
         exit_rx,
+        ..
     } = spawned;
 
     let timeout_ms = if cfg!(windows) { 10_000 } else { 2_000 };
@@ -630,6 +632,7 @@ async fn driver_backed_process_can_expose_split_stdout_and_stderr() -> anyhow::R
         stdout_rx,
         stderr_rx,
         exit_rx,
+        ..
     } = spawned;
     let stdout_task = tokio::spawn(async move { collect_split_output(stdout_rx).await });
     let stderr_task = tokio::spawn(async move { collect_split_output(stderr_rx).await });
@@ -768,6 +771,7 @@ async fn driver_backed_process_drains_output_that_arrives_after_exit_signal() ->
         stdout_rx,
         stderr_rx: _stderr_rx,
         exit_rx,
+        ..
     } = spawned;
     let stdout_task = tokio::spawn(async move { collect_split_output(stdout_rx).await });
 

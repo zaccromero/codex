@@ -226,6 +226,7 @@ async fn collect_stdout_and_exit(
         mut stdout_rx,
         stderr_rx: _stderr_rx,
         exit_rx,
+        ..
     } = spawned;
     let stdout_task = tokio::spawn(async move {
         let mut stdout = Vec::new();
@@ -506,6 +507,7 @@ fn legacy_non_tty_powershell_interrupt_terminates_process() {
             mut stdout_rx,
             stderr_rx: _stderr_rx,
             exit_rx,
+            ..
         } = spawned;
         timeout(Duration::from_secs(5), async {
             let mut stdout = Vec::new();
