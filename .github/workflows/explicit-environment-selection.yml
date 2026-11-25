@@ -1,0 +1,50 @@
+name: Explicit environment selection on macOS
+on:
+  push:
+    branches: [ci/explicit-selection-3977e202]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      CARGO_INCREMENTAL: "0"
+      STABLE_GIT_COMMIT: 3977e202fb6b960f5b12f3e77f95272822679cbb
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 3977e202fb6b960f5b12f3e77f95272822679cbb
+          persist-credentials: false
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "$STABLE_GIT_COMMIT"
+      - uses: ./.github/actions/setup-ci
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8
+        with:
+          components: rustfmt
+          targets: aarch64-apple-darwin
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.13.5"
+      - uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: aarch64-apple-darwin
+      - name: Check formatting
+        run: just fmt-check
+      - name: Test default and explicit thread environment selection
+        working-directory: codex-rs
+        run: |
+          cargo test --locked -p codex-exec-server --lib environment_manager_
+          cargo test --locked -p codex-core --lib default_thread_environment_requests
+          cargo test --locked -p codex-core --lib explicit_only_executor_is_registered_but_not_requested_at_startup
+      - name: Build package from tested revision
+        run: |
+          python3 scripts/build_codex_package.py --target aarch64-apple-darwin --cargo-profile release --package-version 0.169.0-ci.1 --package-dir "$RUNNER_TEMP/ci-codex" --archive-output "$RUNNER_TEMP/ci-codex.tar.gz"
+          "$RUNNER_TEMP/ci-codex/bin/codex" --version
+          shasum -a 256 "$RUNNER_TEMP/ci-codex.tar.gz"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: explicit-selection-3977e202fb6b960f5b12f3e77f95272822679cbb
+          path: ${{ runner.temp }}/ci-codex.tar.gz
+          retention-days: 3
+          if-no-files-found: error
