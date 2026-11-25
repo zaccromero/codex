@@ -32,12 +32,6 @@ jobs:
       - uses: ./.github/actions/setup-rusty-v8
         with:
           target: aarch64-apple-darwin
-      - uses: ./third_party/voice/cargo-ci/produce
-        with:
-          target: aarch64-apple-darwin
-      - uses: ./third_party/voice/cargo-ci/setup
-        with:
-          target: aarch64-apple-darwin
       - name: Test managed and unmanaged thread startup
         working-directory: codex-rs
         run: |
@@ -50,6 +44,7 @@ jobs:
             "${suite[@]}" "$testname" -- --exact
           done
       - name: Build the managed worker entrypoint
+        id: candidate
         working-directory: codex-rs
         run: |
           set -euo pipefail
@@ -61,6 +56,15 @@ jobs:
           printf '%s\n' "$SOURCE_COMMIT" > SOURCE_COMMIT
           shasum -a 256 codex > SHA256SUMS
           tar -czf "$RUNNER_TEMP/managed-local-worker.tgz" codex SOURCE_COMMIT SHA256SUMS
+          digest=$(shasum -a 256 "$RUNNER_TEMP/managed-local-worker.tgz" | cut -d ' ' -f 1)
+          echo "sha256=$digest" >> "$GITHUB_OUTPUT"
+          printf 'Candidate archive SHA-256: %s\n' "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify candidate archive ${{ steps.candidate.outputs.sha256 }}
+        env:
+          ARCHIVE_SHA256: ${{ steps.candidate.outputs.sha256 }}
+        run: |
+          cd "$RUNNER_TEMP"
+          printf '%s  managed-local-worker.tgz\n' "$ARCHIVE_SHA256" | shasum -a 256 --check
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: managed-local-worker-0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
