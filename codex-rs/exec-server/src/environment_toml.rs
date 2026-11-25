@@ -40,6 +40,10 @@ struct EnvironmentsToml {
 #[serde(deny_unknown_fields)]
 struct EnvironmentToml {
     id: String,
+    /// Keep the environment registered for explicit requests, without attaching
+    /// it to every new thread and probing its workspace during startup.
+    #[serde(default)]
+    explicit_selection_only: bool,
     // Requirements for this [[environments]] entry. environment/add sets the same
     // per-environment value dynamically instead of loading it from this file.
     #[serde(default)]
@@ -123,6 +127,7 @@ fn parse_environment_toml(
 ) -> Result<EnvironmentProviderEntry, ExecServerError> {
     let EnvironmentToml {
         id,
+        explicit_selection_only,
         skills,
         url,
         auth_bearer_token,
@@ -207,6 +212,7 @@ fn parse_environment_toml(
 
     Ok(EnvironmentProviderEntry {
         id,
+        explicit_selection_only,
         transport: transport_params,
         skills,
     })

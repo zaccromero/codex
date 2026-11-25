@@ -36,6 +36,7 @@ pub struct EnvironmentProviderSnapshot {
 #[derive(Clone, Debug)]
 pub(crate) struct EnvironmentProviderEntry {
     pub(crate) id: String,
+    pub(crate) explicit_selection_only: bool,
     pub(crate) transport: ExecServerTransportParams,
     pub(crate) skills: ScopedSkillsConfig,
 }
@@ -80,6 +81,7 @@ impl DefaultEnvironmentProvider {
 
         if let Some(exec_server_url) = exec_server_url {
             environments.push(EnvironmentProviderEntry {
+                explicit_selection_only: false,
                 id: REMOTE_ENVIRONMENT_ID.to_string(),
                 transport: ExecServerTransportParams::websocket_url(
                     exec_server_url,

@@ -1719,6 +1719,35 @@ url = "ws://127.0.0.1:8765"
     }
 
     #[tokio::test]
+    async fn explicit_only_executor_is_registered_but_not_requested_at_startup() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("environments.toml"),
+            r#"
+default = "local"
+[[environments]]
+id = "ci"
+url = "ws://127.0.0.1:8765"
+explicit_selection_only = true
+"#,
+        )
+        .expect("write environments.toml");
+        let manager = EnvironmentManager::from_codex_home(
+            temp_dir.path(),
+            Some(test_runtime_paths()),
+            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+        )
+        .await
+        .expect("environment manager");
+        let cwd = AbsolutePathBuf::current_dir().expect("cwd");
+        let requests =
+            default_thread_environment_requests(&manager, &cwd, std::slice::from_ref(&cwd));
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].environment_id, LOCAL_ENVIRONMENT_ID);
+        assert!(manager.get_environment("ci").is_some());
+    }
+
+    #[tokio::test]
     async fn default_thread_environment_requests_empty_when_default_disabled() {
         let cwd = AbsolutePathBuf::current_dir().expect("cwd");
         let manager = environment_manager_without_environments();

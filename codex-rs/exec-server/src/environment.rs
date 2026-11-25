@@ -318,6 +318,7 @@ impl EnvironmentManager {
         };
         for EnvironmentProviderEntry {
             id,
+            explicit_selection_only,
             transport,
             skills,
         } in environments
@@ -332,12 +333,13 @@ impl EnvironmentManager {
                     "environment id `{LOCAL_ENVIRONMENT_ID}` is reserved for EnvironmentManager"
                 )));
             }
-            let environment = Environment::remote_with_transport(
+            let mut environment = Environment::remote_with_transport(
                 transport,
                 /*local_runtime_paths*/ None,
                 http_client_factory.clone(),
                 skills,
             );
+            environment.explicit_selection_only = explicit_selection_only;
             if environment_map
                 .insert(id.clone(), Arc::new(environment))
                 .is_some()
@@ -350,9 +352,14 @@ impl EnvironmentManager {
         let default_environment = match default {
             EnvironmentDefault::Disabled => None,
             EnvironmentDefault::EnvironmentId(environment_id) => {
-                if !environment_map.contains_key(&environment_id) {
-                    return Err(ExecServerError::Protocol(format!(
+                let environment = environment_map.get(&environment_id).ok_or_else(|| {
+                    ExecServerError::Protocol(format!(
                         "default environment `{environment_id}` is not configured"
+                    ))
+                })?;
+                if environment.explicit_selection_only {
+                    return Err(ExecServerError::Protocol(format!(
+                        "default environment `{environment_id}` cannot require explicit selection"
                     )));
                 }
                 Some(environment_id)
@@ -396,9 +403,11 @@ impl EnvironmentManager {
         environment_ids.push(default_environment_id.clone());
         environment_ids.extend(
             environments
-                .keys()
-                .filter(|environment_id| *environment_id != default_environment_id)
-                .cloned(),
+                .iter()
+                .filter(|(id, environment)| {
+                    *id != default_environment_id && !environment.explicit_selection_only
+                })
+                .map(|(id, _)| id.clone()),
         );
         environment_ids
     }
@@ -702,6 +711,7 @@ fn optional_environment_value(name: &str) -> Option<String> {
 /// paths used by filesystem helpers.
 #[derive(Clone)]
 pub struct Environment {
+    explicit_selection_only: bool,
     skills: ScopedSkillsConfig,
     remote_client: Option<LazyRemoteExecServerClient>,
     ready_info: Arc<ArcSwapOption<EnvironmentReadyInfo>>,
@@ -721,6 +731,7 @@ impl Environment {
     pub fn default_for_tests() -> Self {
         Self {
             remote_client: None,
+            explicit_selection_only: false,
             skills: ScopedSkillsConfig::default(),
             ready_info: Arc::new(ArcSwapOption::empty()),
             provisioning_status_tx: None,
@@ -802,6 +813,7 @@ impl Environment {
     ) -> Self {
         Self {
             remote_client: None,
+            explicit_selection_only: false,
             skills: ScopedSkillsConfig::default(),
             ready_info: Arc::new(ArcSwapOption::empty()),
             provisioning_status_tx: None,
@@ -838,6 +850,7 @@ impl Environment {
 
         Self {
             remote_client: Some(client.clone()),
+            explicit_selection_only: false,
             skills,
             ready_info: Arc::new(ArcSwapOption::empty()),
             provisioning_status_tx: None,
@@ -1421,6 +1434,7 @@ mod tests {
             environments: vec![EnvironmentProviderEntry {
                 id: REMOTE_ENVIRONMENT_ID.to_string(),
                 transport: prepared_websocket_environment(),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::EnvironmentId(REMOTE_ENVIRONMENT_ID.to_string()),
@@ -1453,6 +1467,7 @@ mod tests {
             environments: vec![EnvironmentProviderEntry {
                 id: "".to_string(),
                 transport: prepared_websocket_environment(),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::Disabled,
@@ -1477,6 +1492,7 @@ mod tests {
             environments: vec![EnvironmentProviderEntry {
                 id: LOCAL_ENVIRONMENT_ID.to_string(),
                 transport: prepared_websocket_environment(),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::Disabled,
@@ -1501,6 +1517,7 @@ mod tests {
             environments: vec![EnvironmentProviderEntry {
                 id: "devbox".to_string(),
                 transport: prepared_websocket_environment(),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::EnvironmentId("devbox".to_string()),
@@ -1527,6 +1544,7 @@ mod tests {
             environments: vec![EnvironmentProviderEntry {
                 id: "devbox".to_string(),
                 transport: prepared_websocket_environment(),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::Disabled,
@@ -1550,11 +1568,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn environment_manager_rejects_explicit_only_provider_default() {
+        let snapshot = EnvironmentProviderSnapshot {
+            environments: vec![EnvironmentProviderEntry {
+                id: "ci".to_string(),
+                transport: prepared_websocket_environment(),
+                explicit_selection_only: true,
+                skills: Default::default(),
+            }],
+            default: EnvironmentDefault::EnvironmentId("ci".to_string()),
+            include_local: true,
+        };
+        let err = EnvironmentManager::from_snapshot(
+            snapshot,
+            Some(test_runtime_paths()),
+            legacy_http_client_factory(),
+        )
+        .expect_err("explicit-only default should fail");
+
+        assert_eq!(
+            err.to_string(),
+            "exec-server protocol error: default environment `ci` cannot require explicit selection"
+        );
+    }
+
+    #[tokio::test]
     async fn environment_manager_rejects_unknown_provider_default() {
         let snapshot = EnvironmentProviderSnapshot {
             environments: vec![EnvironmentProviderEntry {
                 id: "devbox".to_string(),
                 transport: prepared_websocket_environment(),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::EnvironmentId("missing".to_string()),
@@ -1777,6 +1821,7 @@ mod tests {
                 environments: vec![EnvironmentProviderEntry {
                     id: "stdio".to_string(),
                     transport,
+                    explicit_selection_only: false,
                     skills: Default::default(),
                 }],
                 default: EnvironmentDefault::Disabled,
@@ -1812,6 +1857,7 @@ mod tests {
                 environments: vec![EnvironmentProviderEntry {
                     id: "stdio".to_string(),
                     transport,
+                    explicit_selection_only: false,
                     skills: Default::default(),
                 }],
                 default: EnvironmentDefault::Disabled,
