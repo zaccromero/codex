@@ -42,6 +42,13 @@ metadata or restore stale snapshot values.
 
 ## Transport
 
+In `environments.toml`, set `explicit_selection_only = true` on a
+`[[environments]]` entry to keep that executor available by ID while excluding
+it from the default workspace list for new threads. This is useful for a CI
+executor that cannot serve the filesystem requests used for workspace discovery.
+The option defaults to false. The environment named by `default` must permit
+implicit selection.
+
 The server speaks the exec-specific `codex-exec-server-protocol` message
 envelope on the wire.
 

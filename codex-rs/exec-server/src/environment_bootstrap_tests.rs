@@ -24,6 +24,7 @@ fn prepared_remote_environment_is_detected_without_constructing_a_connection() {
                     "ws://username:password@executor.example/private?token=secret".to_string(),
                     DEFAULT_REMOTE_EXEC_SERVER_CONNECT_TIMEOUT,
                 ),
+                explicit_selection_only: false,
                 skills: Default::default(),
             }],
             default: EnvironmentDefault::EnvironmentId(REMOTE_ENVIRONMENT_ID.to_string()),
