@@ -70,6 +70,8 @@ pub use state::HumanCommandDetails;
 pub use state::HumanCommandReview;
 pub use thread_startup_metadata::ThreadStartupMetadata;
 mod agent;
+#[cfg(target_os = "macos")]
+mod managed_launch;
 pub use agent::api::AgentConfigUpdate;
 pub use agent::api::AgentControl;
 pub use agent::api::AgentInfo;

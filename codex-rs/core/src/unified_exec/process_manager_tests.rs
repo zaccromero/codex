@@ -239,6 +239,8 @@ fn exec_server_params_use_path_uri_and_env_policy_overlay_contract() {
         exec_server_enforce_managed_network: true,
         exec_server_managed_network: Some(managed_network.clone()),
         exec_server_network_proxy: None,
+        #[cfg(target_os = "macos")]
+        managed_launch_binding: None,
     };
 
     let proxy_settings_mode = codex_sandboxing::WindowsSandboxProxySettingsMode::Preserve;

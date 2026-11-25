@@ -67,6 +67,9 @@ pub struct ExecRequest {
     pub(crate) exec_server_enforce_managed_network: bool,
     pub(crate) exec_server_managed_network: Option<ManagedNetworkSandboxContext>,
     pub(crate) exec_server_network_proxy: Option<RemoteNetworkProxyLaunchConfig>,
+    #[cfg(target_os = "macos")]
+    pub(crate) managed_launch_binding:
+        Option<std::sync::Arc<codex_exec_server::ManagedLaunchBinding>>,
 }
 
 impl ExecRequest {
@@ -108,6 +111,8 @@ impl ExecRequest {
             exec_server_enforce_managed_network: false,
             exec_server_managed_network: None,
             exec_server_network_proxy: None,
+            #[cfg(target_os = "macos")]
+            managed_launch_binding: None,
         }
     }
 
@@ -186,6 +191,8 @@ impl ExecRequest {
             exec_server_enforce_managed_network: false,
             exec_server_managed_network: None,
             exec_server_network_proxy: None,
+            #[cfg(target_os = "macos")]
+            managed_launch_binding: None,
         })
     }
 }

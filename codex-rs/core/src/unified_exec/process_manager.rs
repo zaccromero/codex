@@ -1362,6 +1362,14 @@ impl UnifiedExecProcessManager {
         tty: bool,
         environment: &codex_exec_server::Environment,
     ) -> Result<UnifiedExecProcess, UnifiedExecError> {
+        #[cfg(target_os = "macos")]
+        if request.managed_launch_binding.is_some()
+            && (environment.is_remote() || request.exec_server_shell_snapshot.is_some())
+        {
+            return Err(UnifiedExecError::create_process(
+                "managed launch binding requires the direct local executor".to_string(),
+            ));
+        }
         if environment.is_remote() || request.exec_server_shell_snapshot.is_some() {
             let backend = environment.get_exec_backend();
             let params = exec_server_params_for_request(
@@ -1466,6 +1474,21 @@ impl UnifiedExecProcessManager {
         .await;
         let spawned =
             spawn_result.map_err(|err| UnifiedExecError::create_process(err.to_string()))?;
+        #[cfg(target_os = "macos")]
+        if let Some(binding) = request.managed_launch_binding.as_ref() {
+            let Some(pid) = spawned.child_pid else {
+                spawned.session.terminate();
+                return Err(UnifiedExecError::create_process(
+                    "managed launch has no native child PID".to_string(),
+                ));
+            };
+            if let Err(err) = binding.serve_spawned_child(pid) {
+                spawned.session.terminate();
+                return Err(UnifiedExecError::create_process(format!(
+                    "managed launch handshake unavailable: {err}"
+                )));
+            }
+        }
         UnifiedExecProcess::from_spawned(spawned, request.sandbox).await
     }
 

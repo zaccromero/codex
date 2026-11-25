@@ -830,6 +830,217 @@ async fn completed_pipe_commands_preserve_exit_code() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_process_binds_live_child_to_one_launch_response() -> anyhow::Result<()> {
+    use codex_exec_server::ManagedLaunchBinding;
+    use codex_exec_server::ManagedLaunchClaims;
+    use codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV;
+
+    let (_, turn) = make_session_and_context().await;
+    let binding = ManagedLaunchBinding::new(ManagedLaunchClaims {
+        helper: "/reviewed/materialize".to_string(),
+        helper_sha256: "a".repeat(64),
+        argv: vec!["/reviewed/materialize".to_string(), "--head".to_string(), "b".repeat(40)],
+        https_proxy: "http://127.0.0.1:12345".to_string(),
+        destination: "https://github.com/zaccromero/drako-os.git".to_string(),
+        git_ref: "refs/pull/417/head".to_string(),
+        issuer_exe: "/reviewed/bin/codex".to_string(),
+    })?;
+    let mut env = shell_env();
+    env.insert(
+        MANAGED_LAUNCH_SOCKET_ENV.to_string(),
+        binding.socket_path().to_string(),
+    );
+    let script = r#"
+import json, os, socket
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(os.environ['CODEX_MANAGED_LAUNCH_SOCKET'])
+s.sendall(b'Q' * 32)
+data = b''
+while not data.endswith(b'\n'):
+    part = s.recv(4096)
+    if not part: break
+    data += part
+response = json.loads(data)
+assert response['child_pid'] == os.getpid()
+assert response['nonce'] == '51' * 32
+assert response['argv'][1] == '--head'
+print('child bound')
+"#;
+    let mut request = test_exec_request(
+        &turn,
+        vec![
+            "/usr/bin/python3".to_string(),
+            "-B".to_string(),
+            "-c".to_string(),
+            script.to_string(),
+        ],
+        turn.cwd.clone(),
+        env,
+    );
+    request.managed_launch_binding = Some(binding);
+    let environment = codex_exec_server::Environment::default_for_tests();
+    let process = UnifiedExecProcessManager::default()
+        .open_session_with_prepared_exec_env(
+            1234,
+            &request,
+            None,
+            codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile,
+            None,
+            false,
+            &environment,
+        )
+        .await?;
+    if !process.has_exited() {
+        tokio::time::timeout(Duration::from_secs(5), process.cancellation_token().cancelled())
+            .await?;
+    }
+    let output = UnifiedExecProcessManager::collect_output_until_deadline(
+        process.output_handles(),
+        None,
+        Instant::now() + Duration::from_secs(2),
+    )
+    .await
+    .to_bytes_with_omission_marker();
+    assert_eq!(process.exit_code(), Some(0));
+    assert!(String::from_utf8_lossy(&output).contains("child bound"));
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn seatbelt_child_reaches_only_its_bound_launch_socket() -> anyhow::Result<()> {
+    use codex_exec_server::ManagedLaunchBinding;
+    use codex_exec_server::ManagedLaunchClaims;
+    use codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV;
+    use codex_network_proxy::ManagedNetworkSandboxContext;
+    use codex_protocol::models::PermissionProfile;
+    use codex_protocol::permissions::FileSystemSandboxPolicy;
+    use codex_protocol::permissions::NetworkSandboxPolicy;
+    use codex_sandboxing::SandboxCommand;
+    use codex_sandboxing::SandboxManager;
+    use codex_sandboxing::SandboxSelection;
+    use codex_sandboxing::SandboxTransformRequest;
+    use std::os::unix::net::UnixListener;
+
+    let (_, turn) = make_session_and_context().await;
+    let workspace = tempfile::tempdir()?;
+    let cwd = AbsolutePathBuf::from_absolute_path(workspace.path())?;
+    let cwd_uri = PathUri::from_abs_path(&cwd);
+    let binding = ManagedLaunchBinding::new(ManagedLaunchClaims {
+        helper: "/reviewed/materialize".to_string(),
+        helper_sha256: "a".repeat(64),
+        argv: vec!["/reviewed/materialize".to_string(), "--head".to_string(), "b".repeat(40)],
+        https_proxy: "http://127.0.0.1:12345".to_string(),
+        destination: "https://github.com/zaccromero/drako-os.git".to_string(),
+        git_ref: "refs/pull/417/head".to_string(),
+        issuer_exe: "/reviewed/bin/codex".to_string(),
+    })?;
+    let denied_dir = tempfile::tempdir_in("/private/tmp")?;
+    let denied_socket = denied_dir.path().join("sibling.sock");
+    let _sibling = UnixListener::bind(&denied_socket)?;
+    let env = HashMap::from([
+        ("HOME".to_string(), workspace.path().display().to_string()),
+        ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+        (MANAGED_LAUNCH_SOCKET_ENV.to_string(), binding.socket_path().to_string()),
+        ("DENIED_SOCKET".to_string(), denied_socket.display().to_string()),
+    ]);
+    let script = r#"
+import errno, json, os, socket
+with socket.socket(socket.AF_UNIX) as sibling:
+    try:
+        sibling.connect(os.environ['DENIED_SOCKET'])
+    except OSError as error:
+        assert error.errno in (errno.EPERM, errno.EACCES), error
+    else:
+        raise AssertionError('Seatbelt reached a sibling socket')
+with socket.socket(socket.AF_UNIX) as bound:
+    bound.connect(os.environ['CODEX_MANAGED_LAUNCH_SOCKET'])
+    bound.sendall(b'Q' * 32)
+    response = b''
+    while not response.endswith(b'\n'):
+        part = bound.recv(4096)
+        if not part: break
+        response += part
+    proof = json.loads(response)
+    assert proof['child_pid'] == os.getpid()
+    assert proof['nonce'] == '51' * 32
+    assert proof['git_ref'] == 'refs/pull/417/head'
+print('seatbelt child bound and sibling denied')
+"#;
+    let permissions = PermissionProfile::from_runtime_permissions(
+        &FileSystemSandboxPolicy::read_only(),
+        NetworkSandboxPolicy::Enabled,
+    );
+    let wrapped = SandboxManager::new().transform(SandboxTransformRequest {
+        command: SandboxCommand {
+            program: "/usr/bin/python3".into(),
+            args: vec!["-B".to_string(), "-c".to_string(), script.to_string()],
+            cwd: cwd_uri.clone(),
+            env,
+            managed_network: Some(ManagedNetworkSandboxContext {
+                allow_unix_sockets: vec![binding.socket_dir().display().to_string()],
+                ..Default::default()
+            }),
+            additional_permissions: None,
+        },
+        permissions: &permissions,
+        workspace_roots: None,
+        runtime_readable_paths: &[],
+        selection: SandboxSelection::Explicit(SandboxType::MacosSeatbelt),
+        enforce_managed_network: true,
+        environment_id: None,
+        network: None,
+        sandbox_policy_cwd: &cwd_uri,
+        sandbox_exe: None,
+        use_legacy_landlock: false,
+        windows_sandbox_level: turn.windows_sandbox_level,
+    })?;
+    let mut request = ExecRequest::from_sandbox_exec_request(
+        wrapped.into_command_request(),
+        crate::sandboxing::ExecOptions {
+            expiration: ExecExpiration::DefaultTimeout,
+            capture_policy: ExecCapturePolicy::ShellTool,
+        },
+        vec![],
+    )
+    .await?;
+    assert_eq!(request.sandbox, SandboxType::MacosSeatbelt);
+    request.managed_launch_binding = Some(binding);
+    let environment = codex_exec_server::Environment::default_for_tests();
+    let process = UnifiedExecProcessManager::default()
+        .open_session_with_prepared_exec_env(
+            1235,
+            &request,
+            None,
+            codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile,
+            None,
+            false,
+            &environment,
+        )
+        .await?;
+    if !process.has_exited() {
+        tokio::time::timeout(Duration::from_secs(5), process.cancellation_token().cancelled())
+            .await?;
+    }
+    let output = UnifiedExecProcessManager::collect_output_until_deadline(
+        process.output_handles(),
+        None,
+        Instant::now() + Duration::from_secs(2),
+    )
+    .await
+    .to_bytes_with_omission_marker();
+    assert_eq!(
+        process.exit_code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output)
+    );
+    assert!(String::from_utf8_lossy(&output).contains("seatbelt child bound and sibling denied"));
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_uses_remote_exec_server_when_configured() -> anyhow::Result<()> {
     skip_if_sandbox!(Ok(()));

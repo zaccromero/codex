@@ -180,6 +180,7 @@ async fn spawn_process_with_stdin_mode(
         };
     #[cfg(not(target_os = "linux"))]
     let mut child = command.spawn()?;
+    let child_pid = child.id();
     #[cfg(windows)]
     let windows_terminator = {
         // Accept the small race: a descendant created between spawn and
@@ -295,6 +296,7 @@ async fn spawn_process_with_stdin_mode(
 
     Ok(SpawnedProcess {
         session: handle,
+        child_pid,
         stdout_rx,
         stderr_rx,
         exit_rx,

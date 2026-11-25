@@ -473,6 +473,7 @@ async fn run_command(params: RunCommandParams) {
         stdout_rx,
         stderr_rx,
         exit_rx,
+        ..
     } = spawned;
     tokio::pin!(exit_rx);
     let mut expiration_outcome = None;

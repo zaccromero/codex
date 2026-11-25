@@ -359,6 +359,8 @@ pub fn combine_output_receivers(
 #[derive(Debug)]
 pub struct SpawnedProcess {
     pub session: ProcessHandle,
+    /// Native child PID at spawn, before it can be reaped or replaced.
+    pub child_pid: Option<u32>,
     pub stdout_rx: mpsc::Receiver<Vec<u8>>,
     pub stderr_rx: mpsc::Receiver<Vec<u8>>,
     pub exit_rx: oneshot::Receiver<i32>,
@@ -475,6 +477,7 @@ pub fn spawn_from_driver(driver: ProcessDriver) -> SpawnedProcess {
 
     SpawnedProcess {
         session: handle,
+        child_pid: None,
         stdout_rx,
         stderr_rx,
         exit_rx: exit_rx_out,

@@ -48,6 +48,10 @@ pub(crate) fn exec_env_for_sandbox_permissions(
     sandbox_permissions: SandboxPermissions,
 ) -> HashMap<String, String> {
     let mut env = env.clone();
+    // This private hint is issued only for an approved direct launch below.
+    // A workload-supplied value cannot select an issuer or a prior channel.
+    #[cfg(target_os = "macos")]
+    env.remove(codex_exec_server::MANAGED_LAUNCH_SOCKET_ENV);
     // Escalated commands intentionally use the original, unbrokered environment. This branch is
     // defensive cleanup for a caller that passes an environment already prepared by Codex.
     if sandbox_permissions.requires_escalated_permissions()

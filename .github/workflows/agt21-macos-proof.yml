@@ -1,0 +1,114 @@
+name: AGT-21 macOS fork proof
+
+on:
+  push:
+    branches:
+      - task/agt21-managed-launch-20261124
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64:
+    name: Native child, Seatbelt, and package
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      CARGO_INCREMENTAL: "0"
+      STABLE_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Require native Apple Silicon
+        run: |
+          test "$(uname -m)" = arm64
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: ./.github/actions/setup-ci
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
+        with:
+          components: clippy, rustfmt
+          targets: aarch64-apple-darwin
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+      - uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: aarch64-apple-darwin
+      - uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532 # v2.62.49
+        with:
+          tool: cargo-nextest@0.9.103
+      - name: Repository formatting
+        run: just fmt-check
+      - name: Focused native launch and policy tests
+        run: >-
+          just test
+          -p codex-core -p codex-exec-server -p codex-network-proxy
+          -p codex-sandboxing -p codex-utils-pty
+          -E 'test(managed_launch) | test(exact_command_accepts_only_one_lowercase_sha) |
+          test(proxy_requires_credential_free_loopback_http) |
+          test(unrelated_clients_keep_their_existing_launch) |
+          test(helper_requires_this_attempts_human_review_and_seatbelt) |
+          test(user_owned_issuer_cannot_be_accepted) |
+          test(spawned_child_receives_one_exact_response) |
+          test(wrong_peer_pid_gets_no_binding) |
+          test(exited_child_cannot_leave_reusable_binding) |
+          test(local_process_binds_live_child_to_one_launch_response) |
+          test(seatbelt_child_reaches_only_its_bound_launch_socket) |
+          test(workload_cannot_supply_a_managed_launch_socket) |
+          test(launch_destination_checks_current_proxy_policy) |
+          test(daemon_sockets_are_denied_despite_network_and_tmp_write_grants) |
+          test(managed_local_binding_does_not_allow_external_dns)'
+      - name: Focused Clippy
+        run: >-
+          just clippy
+          -p codex-core -p codex-exec-server -p codex-network-proxy
+          -p codex-sandboxing -p codex-utils-pty -p codex-app-server
+          -p codex-realtime-webrtc -- -D warnings
+      - name: Build canonical new-worker package
+        run: |
+          python3 scripts/build_codex_package.py \
+            --target aarch64-apple-darwin \
+            --cargo-profile release \
+            --package-version 0.169.0-drako.2 \
+            --package-dir "$RUNNER_TEMP/agt21-codex-package" \
+            --archive-output "$RUNNER_TEMP/agt21-codex-package.tar.gz"
+          "$RUNNER_TEMP/agt21-codex-package/bin/codex" --version
+          codesign --verify --strict "$RUNNER_TEMP/agt21-codex-package/bin/codex"
+      - name: Record package provenance
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          package = temp / "agt21-codex-package"
+          archive = temp / "agt21-codex-package.tar.gz"
+          files = [path for path in package.rglob("*") if path.is_file()]
+          digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+          receipt = {
+              "source_sha": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "target": "aarch64-apple-darwin",
+              "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "archive_sha256": digest(archive),
+              "files_sha256": {str(path.relative_to(package)): digest(path) for path in sorted(files)},
+          }
+          (temp / "agt21-provenance.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+      - name: Retain install candidate without publishing a release
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: agt21-codex-macos-arm64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/agt21-codex-package.tar.gz
+            ${{ runner.temp }}/agt21-provenance.json
+          if-no-files-found: error
+          retention-days: 7
