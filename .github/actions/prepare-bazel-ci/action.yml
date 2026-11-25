@@ -21,6 +21,15 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Reclaim Android SDK space for fork Bazel builds
+      if: ${{ github.event.repository.fork && runner.environment == 'github-hosted' && runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        # These desktop targets do not use the image's preinstalled Android SDK.
+        df -h "$GITHUB_WORKSPACE"
+        sudo -n rm -rf --one-file-system -- /usr/local/lib/android/sdk
+        df -h "$GITHUB_WORKSPACE"
+
     - id: setup_ci
       uses: ./.github/actions/setup-ci
 
