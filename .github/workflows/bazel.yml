@@ -25,7 +25,7 @@ jobs:
     # PRs use the sharded Windows cross-compiled test jobs below. Post-merge
     # pushes to main also run the native Windows test job for broader Windows
     # signal without putting PR latency back on the critical path.
-    timeout-minutes: 120
+    timeout-minutes: ${{ github.event.repository.fork && 180 || 120 }}
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +144,7 @@ jobs:
       contents: read
       id-token: write
     # Build and test Windows shards on separate Windows runners.
-    timeout-minutes: 90
+    timeout-minutes: &build_timeout ${{ github.event.repository.fork && 180 || 90 }}
     strategy:
       fail-fast: false
       matrix:
@@ -355,7 +355,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 90
+    timeout-minutes: *build_timeout
     strategy:
       fail-fast: false
       matrix:
@@ -463,7 +463,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 90
+    timeout-minutes: *build_timeout
     strategy:
       fail-fast: false
       matrix:

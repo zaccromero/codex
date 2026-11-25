@@ -174,7 +174,7 @@ jobs:
     continue-on-error: true
     runs-on: ${{ !github.event.repository.fork && matrix.runs_on || matrix.runner }}
     # A cold local build on the fork's standard runners needs the same budget as Clippy.
-    timeout-minutes: ${{ github.event.repository.fork && 90 || matrix.timeout_minutes }}
+    timeout-minutes: ${{ github.event.repository.fork && 180 || matrix.timeout_minutes }}
     needs: changed
     environment:
       name: bazel
