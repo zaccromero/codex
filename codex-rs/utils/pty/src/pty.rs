@@ -474,7 +474,7 @@ async fn spawn_process_preserving_fds(
 
     Ok(SpawnedProcess {
         session: handle,
-        child_pid,
+        child_pid: Some(child_pid),
         stdout_rx,
         stderr_rx,
         exit_rx,
