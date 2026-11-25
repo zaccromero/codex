@@ -439,18 +439,22 @@ class InstallShTest(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             oldest = releases / f"{versions[0]}-{target}"
             helper = oldest / "bin/codex-code-mode-host"
-            shutil.copy("/bin/sleep", helper)
             if system.sysname == "Darwin":
+                shutil.copy("/bin/sleep", helper)
+                helper_args = [str(helper), "300"]
                 # A copied macOS system binary cannot run with its platform signature.
                 subprocess.run(
                     ["/usr/bin/codesign", "--force", "--sign", "-", str(helper)],
                     check=True,
                     capture_output=True,
                 )
+            else:
+                # Ubuntu's multicall sleep fails when the binary is renamed.
+                # A shell blocked in its read builtin keeps this exact executable live.
+                shutil.copy("/bin/sh", helper)
+                helper_args = [str(helper), "-c", "read -r line"]
             # A helper can outlive its parent CLI; retain its whole release.
-            # Ubuntu's multicall coreutils selects sleep from argv[0]. Execute
-            # the copy so /proc and lsof still report the real release path.
-            with subprocess.Popen(["sleep", "300"], executable=helper) as running:
+            with subprocess.Popen(helper_args, stdin=subprocess.PIPE) as running:
                 try:
                     second, _ = run_installer_in(
                         root, versions[1], **install_options[versions[1]]
@@ -565,7 +569,9 @@ class InstallShTest(unittest.TestCase):
                             readable, "installer did not attempt retirement"
                         )
                         self.assertEqual(os.read(ready_fd, 128), b"ready\n")
-                        with subprocess.Popen(["sleep", "300"], executable=helper) as late_helper:
+                        with subprocess.Popen(
+                            helper_args, stdin=subprocess.PIPE
+                        ) as late_helper:
                             try:
                                 os.write(resume_fd, b"continue\n")
                                 raced, _ = installing.result(timeout=30)
