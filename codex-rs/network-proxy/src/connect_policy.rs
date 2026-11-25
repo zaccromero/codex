@@ -14,7 +14,7 @@ use crate::system_dns::SystemDnsResolver;
 use rama_core::Service;
 use rama_core::error::BoxError;
 use rama_core::error::ErrorExt as _;
-use rama_core::error::OpaqueError;
+use rama_core::error::extra::OpaqueError;
 use rama_core::extensions::ExtensionsMut;
 use rama_net::address::Host;
 use rama_net::address::HostWithPort;
@@ -298,8 +298,8 @@ mod tests {
             NetworkProxyConfig::default(),
         )));
 
-        let request: rama_tcp::client::Request =
-            rama_tcp::client::Request::new(HostWithPort::from(target));
+        let request: rama_net::client::Request =
+            rama_net::client::Request::new(HostWithPort::from(target));
         let err = Service::serve(&connector, request)
             .await
             .expect_err("local target should be rejected");
@@ -323,8 +323,8 @@ mod tests {
             },
         )));
 
-        let request: rama_tcp::client::Request =
-            rama_tcp::client::Request::new(HostWithPort::from(target));
+        let request: rama_net::client::Request =
+            rama_net::client::Request::new(HostWithPort::from(target));
         let result = Service::serve(&connector, request).await;
 
         assert!(result.is_ok(), "local target should be allowed: {result:?}");
@@ -341,8 +341,8 @@ mod tests {
         let state = Arc::new(network_proxy_state_for_policy(config));
         let connector = TargetCheckedTcpConnector::new(Arc::clone(&state));
 
-        let request: rama_tcp::client::Request =
-            rama_tcp::client::Request::new(HostWithPort::from(target));
+        let request: rama_net::client::Request =
+            rama_net::client::Request::new(HostWithPort::from(target));
         let result = Service::serve(&connector, request).await;
 
         assert!(
@@ -353,7 +353,7 @@ mod tests {
             .add_denied_domain(&target.ip().to_string())
             .await
             .unwrap();
-        let request = rama_tcp::client::Request::new(HostWithPort::from(target));
+        let request = rama_net::client::Request::new(HostWithPort::from(target));
         assert!(Service::serve(&connector, request).await.is_err());
     }
 
@@ -368,8 +368,8 @@ mod tests {
         let connector =
             TargetCheckedTcpConnector::new(Arc::new(network_proxy_state_for_policy(config)));
 
-        let request: rama_tcp::client::Request =
-            rama_tcp::client::Request::new(HostWithPort::new(Host::LOCALHOST_NAME, target.port()));
+        let request: rama_net::client::Request =
+            rama_net::client::Request::new(HostWithPort::new(Host::LOCALHOST_NAME, target.port()));
         let result = Service::serve(&connector, request).await;
 
         assert!(
@@ -409,7 +409,7 @@ mod tests {
         let admitted_target =
             HostWithPort::new(Host::Name("LOCALHOST.".parse().unwrap()), addr.port());
         let admit = async |decider: Option<Arc<dyn NetworkPolicyDecider>>| {
-            let mut req = rama_tcp::client::Request::new(target.clone());
+            let mut req = rama_net::client::Request::new(target.clone());
             let decision = evaluate_host_policy_for_dial(
                 &state,
                 decider.as_ref(),

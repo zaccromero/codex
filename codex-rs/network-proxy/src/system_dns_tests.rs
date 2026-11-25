@@ -5,11 +5,12 @@ use crate::state::network_proxy_state_for_policy;
 use pretty_assertions::assert_eq;
 use rama_core::Service;
 use rama_core::extensions::ExtensionsMut;
+use rama_core::futures::TryStreamExt;
 use rama_net::address::Host;
 use rama_net::address::HostWithPort;
 use rama_net::address::ProxyAddress;
+use rama_net::client::Request;
 use rama_net::stream::Socket;
-use rama_tcp::client::Request;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -17,8 +18,10 @@ use tokio::net::TcpListener;
 async fn native_resolution_supports_both_address_families() {
     let domain: Domain = "localhost".parse().expect("valid domain");
     let (ipv4, ipv6) = tokio::join!(
-        SystemDnsResolver.ipv4_lookup(domain.clone()),
-        SystemDnsResolver.ipv6_lookup(domain),
+        SystemDnsResolver
+            .lookup_ipv4(domain.clone())
+            .try_collect::<Vec<_>>(),
+        SystemDnsResolver.lookup_ipv6(domain).try_collect::<Vec<_>>(),
     );
 
     assert_eq!(
@@ -29,6 +32,17 @@ async fn native_resolution_supports_both_address_families() {
         ipv6.expect("resolve IPv6 localhost"),
         vec![Ipv6Addr::LOCALHOST]
     );
+}
+
+#[tokio::test]
+async fn txt_lookup_reports_unsupported() {
+    let domain = "localhost".parse().expect("valid domain");
+    let error = SystemDnsResolver
+        .lookup_txt(domain)
+        .try_collect::<Vec<_>>()
+        .await
+        .expect_err("the system address resolver only supports address lookups");
+    assert_eq!(error.kind(), io::ErrorKind::Unsupported);
 }
 
 #[tokio::test]
