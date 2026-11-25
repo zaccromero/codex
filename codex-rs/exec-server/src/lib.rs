@@ -144,11 +144,11 @@ pub use fs_helper_main::main as run_fs_helper_main;
 pub use local_file_system::LOCAL_FS;
 pub use local_file_system::LocalFileSystem;
 #[cfg(target_os = "macos")]
+pub use managed_launch_binding::MANAGED_LAUNCH_SOCKET_ENV;
+#[cfg(target_os = "macos")]
 pub use managed_launch_binding::ManagedLaunchBinding;
 #[cfg(target_os = "macos")]
 pub use managed_launch_binding::ManagedLaunchClaims;
-#[cfg(target_os = "macos")]
-pub use managed_launch_binding::MANAGED_LAUNCH_SOCKET_ENV;
 pub use no_follow::BoundOutput;
 pub use noise_channel::NoiseChannelError;
 pub use noise_channel::NoiseChannelIdentity;
