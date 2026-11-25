@@ -1,0 +1,69 @@
+name: Managed local worker macOS candidate
+on:
+  push:
+    branches: [task/managed-local-worker-ci-20261125]
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      SOURCE_COMMIT: 0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
+      STABLE_GIT_COMMIT: 0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
+      CODEX_REPO_ROOT: ${{ github.workspace }}
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+      CARGO_PROFILE_RELEASE_LTO: "off"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
+          persist-credentials: false
+      - name: Verify candidate source and runner
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(uname -m)" = arm64
+      - uses: ./.github/actions/setup-ci
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8
+        with:
+          targets: aarch64-apple-darwin
+      - uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: aarch64-apple-darwin
+      - uses: ./third_party/voice/cargo-ci/produce
+        with:
+          target: aarch64-apple-darwin
+      - uses: ./third_party/voice/cargo-ci/setup
+        with:
+          target: aarch64-apple-darwin
+      - name: Test managed and unmanaged thread startup
+        working-directory: codex-rs
+        run: |
+          set -euo pipefail
+          suite=(cargo test --locked --release --target aarch64-apple-darwin -p codex-tui --lib)
+          "${suite[@]}" -- --list > "$RUNNER_TEMP/test-list"
+          for name in managed_local_worker_requests_its_checkout_and_configured_roots personal_and_remote_sessions_keep_their_environment_selection; do
+            testname="app_server_session::tests::$name"
+            grep -Fx "$testname: test" "$RUNNER_TEMP/test-list"
+            "${suite[@]}" "$testname" -- --exact
+          done
+      - name: Build the managed worker entrypoint
+        working-directory: codex-rs
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target aarch64-apple-darwin -p codex-cli --bin codex
+          mkdir "$RUNNER_TEMP/managed-local-candidate"
+          cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/codex" "$RUNNER_TEMP/managed-local-candidate/codex"
+          cd "$RUNNER_TEMP/managed-local-candidate"
+          ./codex --version
+          printf '%s\n' "$SOURCE_COMMIT" > SOURCE_COMMIT
+          shasum -a 256 codex > SHA256SUMS
+          tar -czf "$RUNNER_TEMP/managed-local-worker.tgz" codex SOURCE_COMMIT SHA256SUMS
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: managed-local-worker-0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
+          path: ${{ runner.temp }}/managed-local-worker.tgz
+          retention-days: 3
+          if-no-files-found: error
