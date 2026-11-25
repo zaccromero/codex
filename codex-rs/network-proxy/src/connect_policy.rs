@@ -11,16 +11,22 @@ use crate::state::BlockedRequestArgs;
 use crate::state::NetworkProxyState;
 #[cfg(target_os = "macos")]
 use crate::system_dns::SystemDnsResolver;
+use rama_core::Layer;
 use rama_core::Service;
 use rama_core::error::BoxError;
+use rama_core::error::BoxErrorExt as _;
 use rama_core::error::ErrorExt as _;
-use rama_core::error::extra::OpaqueError;
-use rama_core::extensions::ExtensionsMut;
+use rama_core::extensions::Extension;
+use rama_dns::client::DnsConnectorLayer;
+use rama_net::ConnectorTargetInputExt;
+use rama_net::TransportProtocolInputExt;
 use rama_net::address::Host;
 use rama_net::address::HostWithPort;
 use rama_net::address::ProxyAddress;
 use rama_net::client::EstablishedClientConnection;
-use rama_net::transport::TryRefIntoTransportContext;
+use rama_net::client::Request;
+use rama_net::mode::ConnectIpMode;
+use rama_net::mode::DnsResolveIpMode;
 use rama_tcp::TcpStream;
 use rama_tcp::client::TcpStreamConnector;
 use rama_tcp::client::service::TcpConnector;
@@ -52,7 +58,7 @@ impl ResolvedTargetsDenied {
 }
 
 /// Metadata from the trusted admission decision, scoped to its logical destination.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Extension)]
 pub(crate) struct DialPolicy {
     target: HostWithPort,
     authorization: HostAuthorization,
@@ -79,7 +85,7 @@ impl DialPolicy {
         extensions: &'a rama_core::extensions::Extensions,
         target: &HostWithPort,
     ) -> Option<&'a Self> {
-        extensions.get::<Self>().filter(|policy| {
+        extensions.get_ref::<Self>().filter(|policy| {
             policy.target.port == target.port
                 && match (&policy.target.host, &target.host) {
                     (Host::Name(a), Host::Name(b)) => a
@@ -115,8 +121,7 @@ impl TargetCheckedTcpConnector {
 
 impl<Input> Service<Input> for TargetCheckedTcpConnector
 where
-    Input: TryRefIntoTransportContext + Send + ExtensionsMut + 'static,
-    Input::Error: Into<BoxError> + Send + Sync + 'static,
+    Input: ConnectorTargetInputExt + TransportProtocolInputExt + Send + 'static,
 {
     type Output = EstablishedClientConnection<TcpStream, Input>;
     type Error = BoxError;
@@ -124,33 +129,48 @@ where
     async fn serve(&self, input: Input) -> Result<Self::Output, Self::Error> {
         let connector = TcpConnector::new();
         #[cfg(target_os = "macos")]
-        let connector = connector.with_dns(SystemDnsResolver);
+        let dns = DnsConnectorLayer::with_resolver(SystemDnsResolver);
+        #[cfg(not(target_os = "macos"))]
+        let dns = DnsConnectorLayer::new();
 
-        if input.extensions().get::<ProxyAddress>().is_some() {
-            return connector.serve(input).await;
+        if let Some(proxy) = input.extensions().get_ref::<ProxyAddress>() {
+            // Resolve only the configured upstream here. The destination's address
+            // candidates belong to the direct-dial path and must never select this peer.
+            let mut proxy_request = Request::new(proxy.address.clone());
+            proxy_request.transport_protocol = input.transport_protocol();
+            let _ = input
+                .extensions()
+                .clone_to::<ConnectIpMode>(&proxy_request.extensions);
+            let _ = input
+                .extensions()
+                .clone_to::<DnsResolveIpMode>(&proxy_request.extensions);
+            let connection = dns.layer(connector).serve(proxy_request).await?;
+            return Ok(EstablishedClientConnection {
+                input,
+                conn: connection.conn,
+            });
         }
 
         let target = input
-            .try_ref_into_transport_ctx()
-            .map_err(|err| OpaqueError::from_boxed(err.into()).context("read network target"))?
-            .host_with_port()
-            .ok_or_else(|| OpaqueError::from_display("network target is missing a port"))?;
+            .connector_target()
+            .ok_or_else(|| BoxError::from_static_str("network target is missing a port"))?;
+        if !matches!(&target.host, Host::Address(_) | Host::Name(_)) {
+            return Err(BoxError::from_static_str("unsupported network target host"));
+        }
 
         let policy = DialPolicy::for_target(input.extensions(), &target).cloned();
         let attempts = Arc::new(AtomicU8::new(0));
-        let result = connector
-            .with_connector(TargetCheckedStreamConnector {
-                state: self.state.clone(),
-                authorization: policy
-                    .as_ref()
-                    .map_or(HostAuthorization::RequireAllowlist, |policy| {
-                        policy.authorization
-                    }),
-                attempts: attempts.clone(),
-                target,
-            })
-            .serve(input)
-            .await;
+        let checked = connector.with_connector(TargetCheckedStreamConnector {
+            state: self.state.clone(),
+            authorization: policy
+                .as_ref()
+                .map_or(HostAuthorization::RequireAllowlist, |policy| {
+                    policy.authorization
+                }),
+            attempts: attempts.clone(),
+            target,
+        });
+        let result = dns.layer(checked).serve(input).await;
         if result.is_err()
             && attempts.load(Ordering::Relaxed) == BLOCKED
             && let Some(policy) = policy
@@ -226,9 +246,7 @@ impl TargetCheckedStreamConnector {
     async fn allows_non_public_target(&self, addr: SocketAddr) -> Result<bool, BoxError> {
         if self.state.allow_local_binding().await.map_err(|err| {
             let err: BoxError = err.into();
-            OpaqueError::from_boxed(err)
-                .context("read network proxy config")
-                .into_boxed()
+            err.context("read network proxy config")
         })? {
             return Ok(true);
         }
@@ -248,9 +266,7 @@ impl TargetCheckedStreamConnector {
             .map(|decision| decision == HostBlockDecision::Allowed)
             .map_err(|err| {
                 let err: BoxError = err.into();
-                OpaqueError::from_boxed(err)
-                    .context("evaluate network proxy target")
-                    .into_boxed()
+                err.context("evaluate network proxy target")
             })
     }
 }
@@ -262,6 +278,7 @@ pub(crate) fn is_non_public_target(host: &Host) -> bool {
             .as_str()
             .trim_end_matches('.')
             .eq_ignore_ascii_case("localhost"),
+        _ => true,
     }
 }
 
@@ -274,6 +291,7 @@ fn target_matches_non_public_addr(host: &Host, addr: std::net::IpAddr) -> bool {
                 .eq_ignore_ascii_case("localhost")
                 && addr.is_loopback()
         }
+        _ => false,
     }
 }
 
@@ -409,12 +427,12 @@ mod tests {
         let admitted_target =
             HostWithPort::new(Host::Name("LOCALHOST.".parse().unwrap()), addr.port());
         let admit = async |decider: Option<Arc<dyn NetworkPolicyDecider>>| {
-            let mut req = rama_net::client::Request::new(target.clone());
+            let req = rama_net::client::Request::new(target.clone());
             let decision = evaluate_host_policy_for_dial(
                 &state,
                 decider.as_ref(),
                 &request,
-                Some((&admitted_target, req.extensions_mut())),
+                Some((&admitted_target, req.extensions())),
             )
             .await
             .unwrap();

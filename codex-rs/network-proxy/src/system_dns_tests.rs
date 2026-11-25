@@ -4,12 +4,13 @@ use crate::connect_policy::TargetCheckedTcpConnector;
 use crate::state::network_proxy_state_for_policy;
 use pretty_assertions::assert_eq;
 use rama_core::Service;
-use rama_core::extensions::ExtensionsMut;
+use rama_core::extensions::ExtensionsRef;
 use rama_core::futures::TryStreamExt;
 use rama_net::address::Host;
 use rama_net::address::HostWithPort;
 use rama_net::address::ProxyAddress;
 use rama_net::client::Request;
+use rama_net::mode::ConnectIpMode;
 use rama_net::stream::Socket;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -96,9 +97,9 @@ async fn connector_resolves_upstream_proxy_instead_of_destination() {
     let connector = TargetCheckedTcpConnector::new(Arc::new(network_proxy_state_for_policy(
         NetworkProxyConfig::default(),
     )));
-    let mut request =
+    let request =
         Request::new(HostWithPort::try_from("destination.invalid:80").expect("valid destination"));
-    request.extensions_mut().insert(
+    request.extensions().insert(
         ProxyAddress::try_from(format!("http://localhost:{}", target.port()))
             .expect("valid upstream proxy"),
     );
@@ -106,4 +107,29 @@ async fn connector_resolves_upstream_proxy_instead_of_destination() {
     let connection = connector.serve(request).await.expect("connect to proxy");
 
     assert_eq!(connection.conn.peer_addr().expect("peer addr"), target);
+    assert_eq!(
+        connection.input.authority.to_string(),
+        "destination.invalid:80"
+    );
+}
+
+#[tokio::test]
+async fn upstream_proxy_dial_preserves_address_family_restriction() {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .expect("bind listener");
+    let target = listener.local_addr().expect("local addr");
+    let connector = TargetCheckedTcpConnector::new(Arc::new(network_proxy_state_for_policy(
+        NetworkProxyConfig::default(),
+    )));
+    let request =
+        Request::new(HostWithPort::try_from("destination.invalid:80").expect("valid destination"));
+    request
+        .extensions()
+        .insert(ProxyAddress::try_from(format!("http://{target}")).expect("valid proxy"));
+    request.extensions().insert(ConnectIpMode::Ipv6);
+    connector
+        .serve(request)
+        .await
+        .expect_err("IPv6-only input must reject an IPv4 upstream");
 }
