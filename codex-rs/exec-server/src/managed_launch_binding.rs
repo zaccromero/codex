@@ -121,19 +121,18 @@ impl ManagedLaunchBinding {
         child_pid: u32,
         child_identity: ChildIdentity,
     ) -> io::Result<()> {
-        let (mut stream, _) =
-            tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
-                let mut check = tokio::time::interval(Duration::from_millis(100));
-                loop {
-                    tokio::select! {
-                        biased;
-                        _ = check.tick() => verify_child_identity(child_pid, child_identity)?,
-                        accepted = listener.accept() => return accepted,
-                    }
+        let (mut stream, _) = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+            let mut check = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = check.tick() => verify_child_identity(child_pid, child_identity)?,
+                    accepted = listener.accept() => return accepted,
                 }
-            })
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "launch handshake timed out"))??;
+            }
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "launch handshake timed out"))??;
         if peer_pid(stream.as_raw_fd())? != child_pid {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
