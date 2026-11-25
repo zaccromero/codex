@@ -140,6 +140,7 @@ use codex_app_server_protocol::ThreadUnarchiveResponse;
 use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_app_server_protocol::ThreadUnsubscribeResponse;
 use codex_app_server_protocol::Turn;
+use codex_app_server_protocol::TurnEnvironmentParams;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::TurnStartParams;
@@ -166,6 +167,7 @@ use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::SubAgentSource;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use codex_utils_path_uri::LegacyAppPathString;
 use codex_utils_path_uri::PathUri;
 use color_eyre::eyre::Result;
 use color_eyre::eyre::WrapErr;
@@ -2673,6 +2675,32 @@ fn permissions_selection_from_config(
         .map(permission_profile_id_from_active_profile)
 }
 
+/// An Agent Manager worker starts in its local task checkout. Sending an explicit
+/// selection keeps unrelated registered executors out of local instruction discovery.
+fn managed_worker_environments(
+    config: &Config,
+    mode: ThreadParamsMode,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<Vec<TurnEnvironmentParams>> {
+    if mode != ThreadParamsMode::Embedded
+        || env("AGENT_MANAGER_SESSION_ID").is_none_or(|id| id.is_empty())
+        || env(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).is_some()
+    {
+        return None;
+    }
+    Some(vec![TurnEnvironmentParams {
+        environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_owned(),
+        cwd: LegacyAppPathString::from_abs_path(&config.cwd),
+        runtime_workspace_roots: Some(
+            config
+                .workspace_roots
+                .iter()
+                .map(LegacyAppPathString::from_abs_path)
+                .collect(),
+        ),
+    }])
+}
+
 pub(crate) fn thread_start_params_from_config(
     config: &Config,
     thread_params_mode: ThreadParamsMode,
@@ -2716,6 +2744,9 @@ fn thread_start_params_with_reviewer(
         service_tier: service_tier_override_from_config(config),
         cwd: thread_cwd_from_config(config, thread_params_mode, remote_cwd_override),
         runtime_workspace_roots: thread_params_mode.workspace_roots_from_config(config),
+        environments: managed_worker_environments(config, thread_params_mode, |key| {
+            std::env::var_os(key)
+        }),
         approval_policy: match policy_source {
             startup_launch::StartupApprovalPolicy::ResolvedConfig => {
                 Some(config.permissions.approval_policy.value().into())
@@ -3686,6 +3717,55 @@ mod tests {
 
         assert_eq!(params.ephemeral, Some(true));
         assert_eq!(params.history_mode, None);
+    }
+
+    #[tokio::test]
+    async fn managed_local_worker_requests_its_checkout_and_configured_roots() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let mut config = build_config(&temp_dir).await;
+        let extra = config.cwd.join("extra");
+        config.workspace_roots = vec![config.cwd.clone(), extra.clone()];
+        let worker = |key: &str| (key == "AGENT_MANAGER_SESSION_ID").then(|| "worker".into());
+
+        let selection = managed_worker_environments(&config, ThreadParamsMode::Embedded, worker);
+        assert_eq!(
+            selection,
+            Some(vec![TurnEnvironmentParams {
+                environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_owned(),
+                cwd: LegacyAppPathString::from_abs_path(&config.cwd),
+                runtime_workspace_roots: Some(vec![
+                    LegacyAppPathString::from_abs_path(&config.cwd),
+                    LegacyAppPathString::from_abs_path(&extra),
+                ]),
+            }])
+        );
+    }
+
+    #[tokio::test]
+    async fn personal_and_remote_sessions_keep_their_environment_selection() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let config = build_config(&temp_dir).await;
+        let worker = |key: &str| (key == "AGENT_MANAGER_SESSION_ID").then(|| "worker".into());
+        for mode in [ThreadParamsMode::Remote, ThreadParamsMode::Cloud] {
+            assert_eq!(managed_worker_environments(&config, mode, worker), None);
+        }
+        for session_id in [None, Some(std::ffi::OsString::new())] {
+            assert_eq!(
+                managed_worker_environments(&config, ThreadParamsMode::Embedded, |key| {
+                    (key == "AGENT_MANAGER_SESSION_ID").then(|| session_id.clone()).flatten()
+                }),
+                None
+            );
+        }
+        let remote_executor = |key: &str| match key {
+            "AGENT_MANAGER_SESSION_ID" => Some("worker".into()),
+            codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR => Some("ws://remote.test".into()),
+            _ => None,
+        };
+        assert_eq!(
+            managed_worker_environments(&config, ThreadParamsMode::Embedded, remote_executor),
+            None
+        );
     }
 
     #[tokio::test]
