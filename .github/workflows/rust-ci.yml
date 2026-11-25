@@ -186,7 +186,7 @@ jobs:
             runner: ubuntu-24.04
             timeout_minutes: 30
           - name: macOS
-            runner: macos-15-xlarge
+            runner: ${{ github.event.repository.fork && 'macos-15' || 'macos-15-xlarge' }}
             timeout_minutes: 30
           - name: Windows
             runner: windows-latest
