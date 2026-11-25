@@ -8,7 +8,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       SOURCE_COMMIT: 0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
       STABLE_GIT_COMMIT: 0f27aa0d493a83c2d3ac2ba4194ec6334c3e400a
@@ -16,6 +16,8 @@ jobs:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_RELEASE_DEBUG: "0"
       CARGO_PROFILE_RELEASE_LTO: "off"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -32,26 +34,18 @@ jobs:
       - uses: ./.github/actions/setup-rusty-v8
         with:
           target: aarch64-apple-darwin
-      - name: Test managed and unmanaged thread startup
-        working-directory: codex-rs
-        run: |
-          set -euo pipefail
-          suite=(cargo test --locked --release --target aarch64-apple-darwin -p codex-tui --lib)
-          "${suite[@]}" -- --list > "$RUNNER_TEMP/test-list"
-          for name in managed_local_worker_requests_its_checkout_and_configured_roots personal_and_remote_sessions_keep_their_environment_selection; do
-            testname="app_server_session::tests::$name"
-            grep -Fx "$testname: test" "$RUNNER_TEMP/test-list"
-            "${suite[@]}" "$testname" -- --exact
-          done
       - name: Build the managed worker entrypoint
         id: candidate
         working-directory: codex-rs
         run: |
           set -euo pipefail
-          cargo build --locked --release --target aarch64-apple-darwin -p codex-cli --bin codex
+          rustc -vV | grep -Fx 'host: aarch64-apple-darwin'
+          cargo build --locked --release -p codex-cli --bin codex
           mkdir "$RUNNER_TEMP/managed-local-candidate"
-          cp "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/codex" "$RUNNER_TEMP/managed-local-candidate/codex"
+          cp "$CARGO_TARGET_DIR/release/codex" "$RUNNER_TEMP/managed-local-candidate/codex"
           cd "$RUNNER_TEMP/managed-local-candidate"
+          test "$(lipo -archs codex)" = arm64
+          codesign --verify --strict codex
           ./codex --version
           printf '%s\n' "$SOURCE_COMMIT" > SOURCE_COMMIT
           shasum -a 256 codex > SHA256SUMS
@@ -59,6 +53,20 @@ jobs:
           digest=$(shasum -a 256 "$RUNNER_TEMP/managed-local-worker.tgz" | cut -d ' ' -f 1)
           echo "sha256=$digest" >> "$GITHUB_OUTPUT"
           printf 'Candidate archive SHA-256: %s\n' "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Compile the launcher tests
+        working-directory: codex-rs
+        run: cargo test --locked --release -p codex-tui --lib --no-run
+      - name: Test managed and unmanaged thread startup
+        working-directory: codex-rs
+        run: |
+          set -euo pipefail
+          suite=(cargo test --locked --release -p codex-tui --lib)
+          "${suite[@]}" -- --list > "$RUNNER_TEMP/test-list"
+          for name in managed_local_worker_requests_its_checkout_and_configured_roots personal_and_remote_sessions_keep_their_environment_selection; do
+            testname="app_server_session::tests::$name"
+            grep -Fx "$testname: test" "$RUNNER_TEMP/test-list"
+            "${suite[@]}" "$testname" -- --exact
+          done
       - name: Verify candidate archive ${{ steps.candidate.outputs.sha256 }}
         env:
           ARCHIVE_SHA256: ${{ steps.candidate.outputs.sha256 }}
