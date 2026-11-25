@@ -555,7 +555,8 @@ impl Session {
         action: ApprovalAction,
         ctx: ApprovalContext,
     ) -> ApprovalResult {
-        self.request_approval_for_attempt(action, ctx, None).await
+        self.request_approval_for_attempt(action, ctx, /*executor*/ None)
+            .await
     }
 
     pub(super) async fn request_approval_for_attempt(
