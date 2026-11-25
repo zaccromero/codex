@@ -1231,6 +1231,29 @@ impl CodexThread {
         self.session.resume_config_snapshot().await
     }
 
+    /// Obtain the owner review for an already pending, executor-bound human command.
+    /// The trusted embedding UI must display the returned details before approval.
+    /// Each attempt offers one native handle. Ordinary protocol replies cannot obtain it.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "claim the approval while the turn still owns its pending waiters"
+    )]
+    pub async fn take_human_command_review(
+        &self,
+        turn_id: &str,
+        approval_id: &str,
+    ) -> Option<crate::HumanCommandReview> {
+        if self.session_source.is_non_root_agent() {
+            return None;
+        }
+        let active = self.session.active_turn.lock().await;
+        let turn = active.as_ref()?;
+        turn.turn_state
+            .lock()
+            .await
+            .take_human_command_review(turn_id, approval_id)
+    }
+
     /// Returns the active turn's reviewer, including live updates, or the thread default.
     pub async fn approvals_reviewer_for_turn(&self, turn_id: &str) -> ApprovalsReviewer {
         if let Some((turn, settings, _, _)) = self

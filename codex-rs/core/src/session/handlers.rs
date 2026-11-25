@@ -221,7 +221,7 @@ impl Session {
             })
             .await;
         }
-        let _ = pending.sender.send(decision);
+        pending.respond(decision);
     }
 }
 
@@ -235,7 +235,7 @@ async fn cancel_patch_approval(sess: &Arc<Session>, id: &str, expected_turn_id: 
         /*error*/ None,
     )
     .await;
-    let _ = pending.sender.send(ReviewDecision::Abort);
+    pending.respond(ReviewDecision::Abort);
 }
 
 pub async fn request_user_input_response(

@@ -9432,7 +9432,7 @@ pub(crate) async fn make_session_and_context_with_rx() -> (
 }
 
 // Wrap an existing session without starting a submission loop, so tests control its queue.
-pub(super) async fn make_thread_for_session(
+pub(crate) async fn make_thread_for_session(
     session: Arc<Session>,
     turn_context: &TurnContext,
     rx_event: async_channel::Receiver<Event>,

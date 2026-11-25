@@ -3339,6 +3339,7 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         kind: ExecApprovalKind,
+        native_attempt: Option<crate::state::HumanCommandAttempt>,
         model_context: ModelInvocationContext,
         call_id: String,
         timing_call_id: Option<&str>,
@@ -3384,6 +3385,7 @@ impl Session {
                         tx_approve,
                         kind,
                         turn_context.sub_id.clone(),
+                        native_attempt,
                     );
                     let prompt = network_approval_context.as_ref().map(|_| {
                         ts.track_network_prompt(
@@ -3453,7 +3455,10 @@ impl Session {
         });
         let _user_wait = self.start_user_wait_timing(turn_context, user_wait_owner.as_deref());
         self.send_event(turn_context, event).await;
-        rx_approve.await.unwrap_or(ReviewDecision::Abort)
+        rx_approve
+            .await
+            .map(crate::state::ApprovalReply::into_decision)
+            .unwrap_or(ReviewDecision::Abort)
     }
 
     #[expect(
@@ -3483,6 +3488,7 @@ impl Session {
                         tx_approve,
                         ExecApprovalKind::Command,
                         turn_context.sub_id.clone(),
+                        /*native_attempt*/ None,
                     )
                 }
                 None => None,
@@ -3502,7 +3508,10 @@ impl Session {
         });
         let _user_wait = self.start_user_wait_timing(turn_context, user_wait_owner.as_deref());
         self.send_event(turn_context, event).await;
-        rx_approve.await.unwrap_or(ReviewDecision::Abort)
+        rx_approve
+            .await
+            .map(crate::state::ApprovalReply::into_decision)
+            .unwrap_or(ReviewDecision::Abort)
     }
 
     #[expect(
@@ -3917,7 +3926,7 @@ impl Session {
             .lock()
             .await
             .remove_pending_approval(approval_id, expected_turn_id)?;
-        (!pending.sender.is_closed()).then(|| (pending, turn_id.cloned()))
+        (!pending.is_closed()).then(|| (pending, turn_id.cloned()))
     }
 
     pub async fn notify_approval(&self, approval_id: &str, decision: ReviewDecision) {
@@ -3925,8 +3934,7 @@ impl Session {
             .take_pending_approval(approval_id, /*expected_turn_id*/ None)
             .await
         {
-            let decision = pending.validate(decision);
-            let _ = pending.sender.send(decision);
+            pending.respond(decision);
         } else {
             warn!("No pending approval found for call_id: {approval_id}");
         }

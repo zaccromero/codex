@@ -153,6 +153,7 @@ impl ToolOrchestrator {
         let owner_network_policy = sandbox_config.network_policy.is_some();
         let workspace_roots = environment.workspace_roots();
         let executor_managed_process_sandbox = tool.uses_executor_managed_process_sandbox(req);
+        let approval_executor = executor_managed_process_sandbox.then_some(environment);
         let permission_profile = environment.permission_profile();
         let permissions = if executor_managed_process_sandbox {
             // Executor-native roots remain symbolic until the executor applies its own sandbox.
@@ -225,7 +226,7 @@ impl ToolOrchestrator {
                 };
                 let approval = tool_ctx
                     .session
-                    .request_approval(action, approval_ctx)
+                    .request_approval_for_attempt(action, approval_ctx, approval_executor)
                     .await;
                 approval.result?;
                 initial_approval_source = approval.source;
@@ -548,7 +549,7 @@ impl ToolOrchestrator {
                     }
                     tool_ctx
                         .session
-                        .request_approval(action, approval_ctx)
+                        .request_approval_for_attempt(action, approval_ctx, approval_executor)
                         .await
                         .result?;
                 }
