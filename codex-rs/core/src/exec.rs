@@ -474,7 +474,7 @@ pub(crate) async fn execute_exec_request(
         exec_server_managed_network: _,
         exec_server_network_proxy: _,
         #[cfg(target_os = "macos")]
-        managed_launch_binding: _,
+            managed_launch_binding: _,
     } = exec_request;
     let network_sandbox_policy = permission_profile.network_sandbox_policy();
 
