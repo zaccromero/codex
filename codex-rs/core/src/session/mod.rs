@@ -3122,6 +3122,9 @@ impl Session {
         content_token_count: Option<u64>,
         user_input_extension_data: Option<&BTreeMap<String, Value>>,
     ) {
+        if let TurnItem::McpToolCall(call) = &item {
+            crate::ticket_report::observe(&turn_context.extension_data, call);
+        }
         record_turn_ttfm_metric(turn_context, &item).await;
         for contributor in self.services.extensions.turn_lifecycle_contributors() {
             contributor

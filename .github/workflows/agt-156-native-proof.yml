@@ -1,0 +1,42 @@
+name: AGT-156 isolated native app-server proof
+on:
+  push:
+    branches: [task/agt-156-native-desktop-proof]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8
+        with:
+          targets: aarch64-apple-darwin
+      - name: Build native desktop protocol server
+        working-directory: codex-rs
+        run: |
+          test "$(uname -m)" = arm64
+          cargo build --locked -p codex-app-server --bin codex-app-server
+          mkdir "$RUNNER_TEMP/agt156"
+          cp "$CARGO_TARGET_DIR/debug/codex-app-server" "$RUNNER_TEMP/agt156/"
+          cd "$RUNNER_TEMP/agt156"
+          shasum -a 256 codex-app-server > SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > SOURCE_COMMIT
+          tar czf "$RUNNER_TEMP/native-agt156.tgz" codex-app-server SHA256SUMS SOURCE_COMMIT
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: native-agt156-macos-arm64
+          path: ${{ runner.temp }}/native-agt156.tgz
+          retention-days: 2
+          if-no-files-found: error
+      - name: Test native receipt handling
+        working-directory: codex-rs
+        run: cargo test --locked -p codex-core --lib ticket_report::tests

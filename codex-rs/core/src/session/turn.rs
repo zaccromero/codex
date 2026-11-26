@@ -3083,6 +3083,9 @@ async fn try_run_sampling_request(
         plan_mode.then(|| PlanModeStreamState::new(unfinished_plan_id.clone()));
     let defer_streamed_turn_items_for_contributors =
         !sess.services.extensions.turn_item_contributors().is_empty();
+    let ticket_report =
+        crate::ticket_report::for_request(&turn_context.extension_data, &prompt.input);
+    let mut ticket_message = crate::ticket_report::MessageStream::default();
     let mut active_item_is_streaming_to_client = false;
     let receiving_span = trace_span!("receiving_stream");
     let outcome: CodexResult<SamplingRequestResult> = loop {
@@ -3226,6 +3229,20 @@ async fn try_run_sampling_request(
                 }
             }
             ResponseEvent::OutputItemDone(mut item) => {
+                if let Some(delta) = ticket_message.finish(&mut item, ticket_report.as_deref())
+                    && active_item_is_streaming_to_client
+                    && let Some(TurnItem::AgentMessage(message)) = active_item.as_ref()
+                {
+                    let parsed = assistant_message_stream_parsers.parse_delta(&message.id, &delta);
+                    emit_streamed_assistant_text_delta(
+                        &sess,
+                        &turn_context,
+                        plan_mode_state.as_mut(),
+                        &message.id,
+                        parsed,
+                    )
+                    .await;
+                }
                 // Serving emits one final value immediately before this item's completion.
                 // After this handoff, the invocation/cell owns it independently of the stream.
                 let assessment = pending_assessment
@@ -3410,6 +3427,7 @@ async fn try_run_sampling_request(
                 }
             }
             ResponseEvent::OutputItemAdded(mut item) => {
+                ticket_message.start(&mut item, ticket_report.as_deref());
                 sess.assign_missing_response_item_id(&mut item);
                 sess.reserve_assistant_message_order(&turn_context, &item)
                     .await;
@@ -3639,6 +3657,10 @@ async fn try_run_sampling_request(
                 }
             }
             ResponseEvent::OutputTextDelta(delta) => {
+                let delta = ticket_message.push(delta);
+                if delta.is_empty() {
+                    continue;
+                }
                 // In review child threads, suppress assistant text deltas; the
                 // UI will show a selection popup from the final ReviewOutput.
                 if let Some(active) = active_item.as_ref() {
