@@ -73,6 +73,7 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::test_codex::turn_permission_fields;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
+use core_test_support::wait_for_successful_turn;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
@@ -879,10 +880,7 @@ async fn subagent_stop_replaces_stop_and_skips_internal_subagents() -> Result<()
     let child = test.thread_manager.get_thread(child_id).await?;
     // Stop hooks run after inference and can request another response. Wait for
     // the child's whole turn before checking the results of both hook calls.
-    wait_for_event(child.as_ref(), |event| {
-        matches!(event, EventMsg::TurnComplete(_))
-    })
-    .await;
+    wait_for_successful_turn(child.as_ref()).await;
 
     let subagent_stop_inputs =
         read_hook_log(test.codex_home_path(), "subagent_stop_hook_log.jsonl")?;

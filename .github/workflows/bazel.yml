@@ -147,7 +147,7 @@ jobs:
       contents: read
       id-token: write
     # Build and test Windows shards on separate Windows runners.
-    timeout-minutes: 180
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
@@ -356,7 +356,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 180
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 300 || 180 }}
     strategy:
       fail-fast: false
       matrix:
@@ -461,7 +461,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 180
+    timeout-minutes: ${{ matrix.os == 'macos-15' && 300 || 180 }}
     strategy:
       fail-fast: false
       matrix:
