@@ -439,7 +439,14 @@ class InstallShTest(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             oldest = releases / f"{versions[0]}-{target}"
             helper = oldest / "bin/codex-code-mode-host"
-            shutil.copy("/bin/sh", helper)
+            # Darwin's sh launcher execs /bin/bash. Use cat there so the live
+            # process continues to map this installed file for lsof inspection.
+            helper_command = [str(helper)]
+            if system.sysname == "Darwin":
+                shutil.copy("/bin/cat", helper)
+            else:
+                shutil.copy("/bin/sh", helper)
+                helper_command.extend(["-c", "read -r line"])
             if system.sysname == "Darwin":
                 # A copied macOS system binary cannot run with its platform signature.
                 subprocess.run(
@@ -447,12 +454,9 @@ class InstallShTest(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
-            # The copied shell blocks in its read builtin as long as the test
-            # owns the pipe. The executable itself stays inside the release.
+            # The test owns the pipe, so both helpers remain alive until released.
             def start_helper():
-                return subprocess.Popen(
-                    [str(helper), "-c", "read -r line"], stdin=subprocess.PIPE
-                )
+                return subprocess.Popen(helper_command, stdin=subprocess.PIPE)
 
             # A helper can outlive its parent CLI; retain its whole release.
             with start_helper() as running:
