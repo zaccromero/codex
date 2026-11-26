@@ -1,0 +1,15 @@
+name: Prepare macOS PTY tests
+description: Allow the high-descriptor fallback test to allocate descriptors above Darwin OPEN_MAX.
+runs:
+  using: composite
+  steps:
+    - name: Check the hosted macOS descriptor limit
+      if: runner.os == 'macOS' && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        # The PTY test raises its own soft limit to 16384. Darwin also
+        # enforces a kernel ceiling when allocating each new descriptor.
+        if (( $(sysctl -n kern.maxfilesperproc) < 16384 )); then
+          sudo sysctl -w kern.maxfilesperproc=16384
+        fi
+        sysctl kern.maxfilesperproc
