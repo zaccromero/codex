@@ -30,7 +30,7 @@ pub(super) fn normalize(settings: &mut Arc<StepSettings>, catalog: &[ModelInfo])
     else {
         return;
     };
-    normalize_effort(settings, model, false);
+    normalize_effort(settings, model, /*planning*/ false);
     if let Some(tier) = settings.service_tier.as_deref()
         && matches!(tier, "priority" | "ultrafast")
         && !model.supports_service_tier(tier)
@@ -40,7 +40,7 @@ pub(super) fn normalize(settings: &mut Arc<StepSettings>, catalog: &[ModelInfo])
 }
 
 pub(super) fn normalize_planner_effort(settings: &mut Arc<StepSettings>, model: &ModelInfo) {
-    normalize_effort(settings, model, true);
+    normalize_effort(settings, model, /*planning*/ true);
 }
 
 fn normalize_effort(settings: &mut Arc<StepSettings>, model: &ModelInfo, planning: bool) {
@@ -64,7 +64,7 @@ fn normalize_effort(settings: &mut Arc<StepSettings>, model: &ModelInfo, plannin
             })
             .or_else(|| {
                 (planning || matches!(effort, ReasoningEffort::Ultra | ReasoningEffort::Persistent))
-                    .then(|| model.default_reasoning_level.as_ref())
+                    .then_some(model.default_reasoning_level.as_ref())
                     .flatten()
                     .filter(|default| allowed.iter().any(|preset| &preset.effort == *default))
             })

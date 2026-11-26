@@ -301,7 +301,7 @@ async fn plan_mode_model_is_turn_scoped_and_preserves_the_saved_coding_model() {
         .mode = ModeKind::Plan;
     assert_eq!(
         thread
-            .for_model_turn(None)
+            .for_model_turn(/*catalog*/ None)
             .unwrap()
             .step_settings
             .collaboration_mode
@@ -310,7 +310,7 @@ async fn plan_mode_model_is_turn_scoped_and_preserves_the_saved_coding_model() {
     );
 
     Arc::make_mut(&mut thread.original_config_do_not_use).plan_mode_model = Some("planner".into());
-    let turn = thread.for_model_turn(None).unwrap();
+    let turn = thread.for_model_turn(/*catalog*/ None).unwrap();
     assert_eq!(turn.step_settings.collaboration_mode.model(), "planner");
     let saved = thread.thread_settings_snapshot(&thread.environments);
     assert_eq!(saved.model, original);
@@ -320,7 +320,7 @@ async fn plan_mode_model_is_turn_scoped_and_preserves_the_saved_coding_model() {
     thread.root_capabilities_restricted = true;
     assert_eq!(
         thread
-            .for_model_turn(None)
+            .for_model_turn(/*catalog*/ None)
             .unwrap()
             .step_settings
             .collaboration_mode
@@ -331,7 +331,7 @@ async fn plan_mode_model_is_turn_scoped_and_preserves_the_saved_coding_model() {
     thread.step_settings = initial;
     assert_eq!(
         thread
-            .for_model_turn(None)
+            .for_model_turn(/*catalog*/ None)
             .unwrap()
             .step_settings
             .collaboration_mode

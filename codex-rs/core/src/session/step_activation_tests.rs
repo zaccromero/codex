@@ -426,7 +426,7 @@ struct ActivationFixture {
 }
 
 async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
-    activation_fixture_with_planner(models, false).await
+    activation_fixture_with_planner(models, /*plan_mode*/ false).await
 }
 
 async fn activation_fixture_with_planner(
@@ -504,7 +504,7 @@ async fn plan_mode_model_normalizes_initial_and_live_effort_against_pinned_model
         turn,
         finish,
         ..
-    } = activation_fixture_with_planner(models, true).await;
+    } = activation_fixture_with_planner(models, /*plan_mode*/ true).await;
     assert_eq!(turn.reasoning_effort(), Some(&ReasoningEffort::Medium));
     assert_eq!(
         session
