@@ -410,6 +410,43 @@ async fn start_only_rejects_current_plan_before_validating_settings() {
 }
 
 #[tokio::test]
+async fn plan_mode_model_routes_root_turns_and_returns_to_the_coding_model() {
+    let (session, _turn_context, _rx) = make_session_and_context_with_rx().await;
+    let coding = session.collaboration_mode().await;
+    let mut plan = coding.clone();
+    plan.mode = ModeKind::Plan;
+    {
+        let mut state = session.state.lock().await;
+        Arc::make_mut(&mut state.session_configuration.original_config_do_not_use)
+            .plan_mode_model = Some("gpt-6.2-astra".to_string());
+    }
+
+    for (sub_id, mode, expected_model) in [
+        ("enter-plan", Some(plan), "gpt-6.2-astra"),
+        ("continue-plan", None, "gpt-6.2-astra"),
+        ("return-to-code", Some(coding.clone()), coding.model()),
+    ] {
+        let prepared = PreparedTurnInputSettings::prepare(
+            &session,
+            ThreadSettingsOverrides {
+                collaboration_mode: mode,
+                ..Default::default()
+            },
+            TurnStartOptions::default(),
+        )
+        .await
+        .expect("prepare turn");
+        let turn = prepared
+            .apply_started(&session, sub_id.into(), TurnStartKind::User)
+            .await
+            .expect("start turn")
+            .expect("user turn");
+        assert_eq!(turn.model_info().slug, expected_model);
+        assert_eq!(session.collaboration_mode().await.model(), coding.model());
+    }
+}
+
+#[tokio::test]
 async fn prepared_user_updates_merge_with_settings_at_turn_start() {
     for (requested, intervening) in [
         (

@@ -415,7 +415,12 @@ impl Session {
         update: &StepSettingsUpdate,
         environments: &[TurnEnvironmentSelection],
     ) -> Result<ResolvedStepSettings, String> {
-        let (requirements, overrides, trusted_guardian_reviewer) = {
+        let mode = update
+            .collaboration_mode
+            .as_ref()
+            .unwrap_or_else(|| current.selected_collaboration_mode())
+            .mode;
+        let (requirements, overrides, trusted_guardian_reviewer, plan_model) = {
             let state = self.state.lock().await;
             let configuration = &state.session_configuration;
             let stack = &configuration.original_config_do_not_use.config_layer_stack;
@@ -423,6 +428,7 @@ impl Session {
                 stack.requirements().clone(),
                 configuration.model_info_overrides.clone(),
                 configuration.trusted_guardian_reviewer,
+                configuration.planning_model(mode).map(str::to_owned),
             )
         };
         let constraints = StepSettingsConstraints {
@@ -434,9 +440,17 @@ impl Session {
                 environments,
             ),
         };
+        let mut update = update.clone();
+        if let Some(model) = plan_model {
+            if let Some(mode) = &mut update.collaboration_mode {
+                mode.settings.model = model;
+            } else {
+                update.model = Some(model);
+            }
+        }
         current
             .apply_update(
-                update,
+                &update,
                 &constraints,
                 self.services.models_manager.as_ref(),
                 &overrides,

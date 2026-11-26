@@ -418,6 +418,35 @@ impl SessionConfiguration {
         }
     }
 
+    /// Resolve the request model on a copy. Persisting the client selection lets
+    /// resumed chats leave Plan Mode and recover the original coding model.
+    pub(super) fn for_model_turn(&self) -> ConstraintResult<Self> {
+        let Some(model) = self.planning_model(self.step_settings.collaboration_mode.mode) else {
+            return Ok(self.clone());
+        };
+        if model == self.step_settings.collaboration_mode.model() {
+            return Ok(self.clone());
+        }
+        self.apply(
+            &SessionSettingsUpdate {
+                step_settings: StepSettingsUpdate {
+                    model: Some(model.to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &self.environments,
+        )
+    }
+
+    pub(super) fn planning_model(&self, mode: ModeKind) -> Option<&str> {
+        if mode == ModeKind::Plan && !self.root_capabilities_restricted {
+            self.original_config_do_not_use.plan_mode_model.as_deref()
+        } else {
+            None
+        }
+    }
+
     /// Applies fields normalized against this configuration at admission.
     pub(super) fn apply(
         &self,

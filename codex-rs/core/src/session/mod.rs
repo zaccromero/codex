@@ -2204,6 +2204,7 @@ impl Session {
                 return Ok(None);
             }
 
+            let turn_configuration = updated.for_model_turn()?;
             let credential_masking_warning = updated
                 .original_config_do_not_use
                 .credential_masking_warning(&updated.permission_profile())
@@ -2271,7 +2272,7 @@ impl Session {
             let new_config = notify_config_contributors
                 .then(|| self.build_effective_session_config(&state.session_configuration));
             let commit = SessionSettingsCommit {
-                configuration: state.session_configuration.clone(),
+                configuration: turn_configuration,
                 snapshot: state
                     .session_configuration
                     .thread_settings_snapshot(&state.session_configuration.environments),

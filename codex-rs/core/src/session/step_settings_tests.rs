@@ -291,6 +291,55 @@ async fn environment_only_update_revalidates_existing_step_settings() {
     );
 }
 
+#[tokio::test]
+async fn plan_mode_model_is_turn_scoped_and_preserves_the_saved_coding_model() {
+    let mut thread = make_session_configuration_for_tests().await;
+    let original = thread.step_settings.collaboration_mode.model().to_owned();
+    let initial = thread.step_settings.clone();
+    Arc::make_mut(&mut thread.step_settings)
+        .collaboration_mode
+        .mode = ModeKind::Plan;
+    assert_eq!(
+        thread
+            .for_model_turn()
+            .unwrap()
+            .step_settings
+            .collaboration_mode
+            .model(),
+        original
+    );
+
+    Arc::make_mut(&mut thread.original_config_do_not_use).plan_mode_model = Some("planner".into());
+    let turn = thread.for_model_turn().unwrap();
+    assert_eq!(turn.step_settings.collaboration_mode.model(), "planner");
+    let saved = thread.thread_settings_snapshot(&thread.environments);
+    assert_eq!(saved.model, original);
+    assert_eq!(saved.collaboration_mode.model(), original);
+    assert_eq!(saved.collaboration_mode.mode, ModeKind::Plan);
+
+    thread.root_capabilities_restricted = true;
+    assert_eq!(
+        thread
+            .for_model_turn()
+            .unwrap()
+            .step_settings
+            .collaboration_mode
+            .model(),
+        original
+    );
+    thread.root_capabilities_restricted = false;
+    thread.step_settings = initial;
+    assert_eq!(
+        thread
+            .for_model_turn()
+            .unwrap()
+            .step_settings
+            .collaboration_mode
+            .model(),
+        original
+    );
+}
+
 fn configured_settings() -> StepSettings {
     StepSettings {
         request_country: RequestCountry::from_iso_code("DE").unwrap(),
