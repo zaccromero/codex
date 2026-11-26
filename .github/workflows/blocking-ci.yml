@@ -20,7 +20,6 @@ jobs:
   # Keep reusable workflow calls alphabetized. The `required` job below is the
   # version-controlled list that the main-branch ruleset should require.
   bazel:
-    if: ${{ github.repository == 'openai/codex' }}
     permissions:
       contents: read
       id-token: write
@@ -31,7 +30,7 @@ jobs:
   bazel-result:
     name: Bazel result
     needs: bazel
-    if: ${{ always() && github.repository == 'openai/codex' }}
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Require the Bazel workflow to succeed
@@ -40,7 +39,6 @@ jobs:
         run: test "$BAZEL_RESULT" = success
 
   blob-size-policy:
-    if: ${{ github.repository == 'openai/codex' }}
     name: Blob size policy
     uses: ./.github/workflows/blob-size-policy.yml
     secrets: inherit
@@ -56,13 +54,11 @@ jobs:
     secrets: inherit
 
   repo-checks:
-    if: ${{ github.repository == 'openai/codex' }}
     name: repo-checks
     uses: ./.github/workflows/repo-checks.yml
     secrets: inherit
 
   rust-ci:
-    if: ${{ github.repository == 'openai/codex' }}
     permissions:
       contents: read
       id-token: write
@@ -71,7 +67,6 @@ jobs:
     secrets: inherit
 
   sdk:
-    if: ${{ github.repository == 'openai/codex' }}
     permissions:
       contents: read
       id-token: write
@@ -102,7 +97,4 @@ jobs:
       - name: Require successful dependencies
         env:
           NEEDS: ${{ toJSON(needs) }}
-          # Skipped only outside openai/codex: these need upstream runners,
-          # runner groups or actions that forks do not have.
-          CI_UPSTREAM_ONLY: blob-size-policy,repo-checks,rust-ci,sdk
         run: python3 .github/scripts/check_ci_results.py

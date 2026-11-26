@@ -10,7 +10,6 @@ jobs:
   # Keep reusable workflow calls alphabetized. Each child retains its own
   # workflow_dispatch trigger so maintainers can rerun flaky suites directly.
   rust-ci-full:
-    if: ${{ github.repository == 'openai/codex' }}
     permissions:
       contents: read
       id-token: write
@@ -19,7 +18,6 @@ jobs:
     secrets: inherit
 
   v8-canary:
-    if: ${{ github.repository == 'openai/codex' }}
     permissions:
       contents: read
       id-token: write
@@ -45,6 +43,4 @@ jobs:
       - name: Require successful dependencies
         env:
           NEEDS: ${{ toJSON(needs) }}
-          # Skipped only outside openai/codex, where these paid suites never run.
-          CI_UPSTREAM_ONLY: rust-ci-full,v8-canary
         run: python3 .github/scripts/check_ci_results.py
