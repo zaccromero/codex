@@ -439,7 +439,7 @@ class InstallShTest(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             oldest = releases / f"{versions[0]}-{target}"
             helper = oldest / "bin/codex-code-mode-host"
-            shutil.copy("/bin/sleep", helper)
+            shutil.copy("/bin/sh", helper)
             if system.sysname == "Darwin":
                 # A copied macOS system binary cannot run with its platform signature.
                 subprocess.run(
@@ -447,10 +447,12 @@ class InstallShTest(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
-            # Multicall coreutils selects sleep by argv[0]. The executable
-            # still lives inside the release, which is what the installer scans.
+            # The copied shell blocks in its read builtin as long as the test
+            # owns the pipe. The executable itself stays inside the release.
             def start_helper():
-                return subprocess.Popen(["sleep", "300"], executable=helper)
+                return subprocess.Popen(
+                    [str(helper), "-c", "read -r line"], stdin=subprocess.PIPE
+                )
 
             # A helper can outlive its parent CLI; retain its whole release.
             with start_helper() as running:
