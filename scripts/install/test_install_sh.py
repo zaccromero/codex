@@ -447,8 +447,13 @@ class InstallShTest(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
+            # Multicall coreutils selects sleep by argv[0]. The executable
+            # still lives inside the release, which is what the installer scans.
+            def start_helper():
+                return subprocess.Popen(["sleep", "300"], executable=helper)
+
             # A helper can outlive its parent CLI; retain its whole release.
-            with subprocess.Popen([str(helper), "300"]) as running:
+            with start_helper() as running:
                 try:
                     second, _ = run_installer_in(
                         root, versions[1], **install_options[versions[1]]
@@ -563,7 +568,7 @@ class InstallShTest(unittest.TestCase):
                             readable, "installer did not attempt retirement"
                         )
                         self.assertEqual(os.read(ready_fd, 128), b"ready\n")
-                        with subprocess.Popen([str(helper), "300"]) as late_helper:
+                        with start_helper() as late_helper:
                             try:
                                 os.write(resume_fd, b"continue\n")
                                 raced, _ = installing.result(timeout=30)
