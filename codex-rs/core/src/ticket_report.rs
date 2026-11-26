@@ -15,7 +15,16 @@ static REPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:creat(?:e|ed|ion)|filed?|filing|open(?:ed)?|submit(?:ted)?|where.s my|where is (?:my|the))\b.{0,50}\b(?:ticket|issue)s?\b|\b(?:ticket|issue)(?: was| been| is| has been)? (?:creation|created|filed|opened|submitted)\b").unwrap()
 });
 static CLAIM: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:created|filed|opened|submitted|logged|raised)\s+(?:(?:a|an|the|your|new|linear|support)\s+)*(?:ticket|issue|[a-z][a-z0-9]*-[1-9][0-9]*)\b|\b(?:tickets?|issues?|[a-z][a-z0-9]*-[1-9][0-9]*)\s+(?:(?:has|have|now|been|is|was|were|successfully|just)\s+)*(?:created|filed|opened|submitted|logged|raised)\b").unwrap()
+    let action = r"(?:created|filed|opened|submitted|logged|raised)";
+    let key = r"[a-z][a-z0-9]*-[1-9][0-9]*";
+    let noun = r"(?:tickets?|issues?)";
+    let article = r"(?:(?:a|an|the|your|new|linear|support)\s+)*";
+    let auxiliary = r"(?:(?:has|have|now|been|is|was|were|successfully|just)\s+)*";
+    let subject = format!(r"(?:{noun}(?:\s*\({key}\)|\s+{key})?|{key})");
+    Regex::new(&format!(
+        r"(?i)\b{action}\s+{article}(?:{noun}|{key})\b|\b{subject}\s+{auxiliary}{action}\b"
+    ))
+    .unwrap()
 });
 
 #[derive(PartialEq)]
@@ -493,6 +502,8 @@ impl MessageStream {
                 UNCONFIRMED.into()
             } else if prefix.ends_with("I ") || prefix.ends_with("We ") {
                 format!("{prefix}cannot confirm that a ticket was created.")
+            } else if prefix.ends_with("Your ") || prefix.ends_with("The ") {
+                format!("{prefix}ticket creation is unconfirmed.")
             } else {
                 format!("{prefix}[ticket creation unconfirmed].")
             })
@@ -659,6 +670,7 @@ mod tests {
         );
         for raw in [
             "I created OPS-12.",
+            "Your ticket (OPS-12) was created successfully.",
             "The file opened normally.",
             "Today looks fine.",
         ] {
