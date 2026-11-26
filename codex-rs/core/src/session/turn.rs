@@ -3040,6 +3040,13 @@ async fn try_run_sampling_request(
             )
             .await
     };
+    let ticket_report =
+        crate::ticket_report::for_request(&turn_context.extension_data, &prompt.input);
+    if ticket_report.is_some() && prompt.output_schema.is_some() {
+        return Err(CodexErr::UnsupportedOperation(
+            "A verified ticket report cannot be represented by an arbitrary output schema.".into(),
+        ));
+    }
     let mut stream = stream_request(&prompt)
         .or_cancel(&cancellation_token)
         .await??;
@@ -3083,8 +3090,6 @@ async fn try_run_sampling_request(
         plan_mode.then(|| PlanModeStreamState::new(unfinished_plan_id.clone()));
     let defer_streamed_turn_items_for_contributors =
         !sess.services.extensions.turn_item_contributors().is_empty();
-    let ticket_report =
-        crate::ticket_report::for_request(&turn_context.extension_data, &prompt.input);
     let mut ticket_message = crate::ticket_report::MessageStream::default();
     let mut active_item_is_streaming_to_client = false;
     let receiving_span = trace_span!("receiving_stream");
@@ -3205,9 +3210,12 @@ async fn try_run_sampling_request(
             continue;
         }
 
-        let Some(event) = resampling.filter(event, &step_context.tool_router) else {
+        let Some(mut event) = resampling.filter(event, &step_context.tool_router) else {
             continue;
         };
+        if ticket_report.is_some() && !crate::ticket_report::filter_reasoning(&mut event) {
+            continue;
+        }
         step_context
             .session_telemetry
             .record_responses(&handle_responses, &event);

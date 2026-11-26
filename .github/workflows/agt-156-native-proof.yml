@@ -2,6 +2,9 @@ name: AGT-156 isolated native app-server proof
 on:
   push:
     branches: [task/agt-156-native-desktop-proof]
+concurrency:
+  group: agt-156-native-desktop-proof
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:

@@ -1,4 +1,5 @@
 //! Bind user-visible ticket confirmations to completed connector calls in this turn.
+use crate::client_common::ResponseEvent;
 use codex_extension_api::ExtensionData;
 use codex_protocol::items::{McpToolCallItem, McpToolCallStatus};
 use codex_protocol::models::{ContentItem, MessagePhase, ResponseItem};
@@ -310,6 +311,28 @@ pub(crate) fn for_request(turn: &ExtensionData, input: &[ResponseItem]) -> Optio
     Some(UNCONFIRMED.into())
 }
 
+// Keep the provider's opaque continuation item. Its optional display text is
+// another client-visible channel and cannot attest an operation.
+pub(crate) fn filter_reasoning(event: &mut ResponseEvent) -> bool {
+    match event {
+        ResponseEvent::OutputItemAdded(ResponseItem::Reasoning {
+            summary, content, ..
+        })
+        | ResponseEvent::OutputItemDone(ResponseItem::Reasoning {
+            summary, content, ..
+        }) => {
+            summary.clear();
+            *content = None;
+            true
+        }
+        ResponseEvent::ReasoningContentDelta { .. }
+        | ResponseEvent::ReasoningSummaryDelta { .. }
+        | ResponseEvent::ReasoningSummaryPartAdded { .. }
+        | ResponseEvent::ReasoningSummaryDone { .. } => false,
+        _ => true,
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct MessageStream {
     report: Option<String>,
@@ -592,6 +615,27 @@ mod tests {
             .contains("no matching")
         );
         assert!(live_report(&turn).is_none());
+    }
+
+    #[test]
+    fn guarded_reasoning_keeps_continuation_but_does_not_publish_a_claim() {
+        let item = serde_json::from_value(
+            json!({"type":"reasoning","id":"r","encrypted_content":"opaque",
+            "summary":[{"type":"summary_text","text":"Created OPS-12"}]}),
+        )
+        .unwrap();
+        let mut event = ResponseEvent::OutputItemDone(item);
+        assert!(filter_reasoning(&mut event));
+        assert!(
+            matches!(event,ResponseEvent::OutputItemDone(ResponseItem::Reasoning{
+            summary,content:None,encrypted_content:Some(value),..}) if summary.is_empty() && value=="opaque")
+        );
+        assert!(!filter_reasoning(
+            &mut ResponseEvent::ReasoningSummaryDelta {
+                delta: "Created OPS-12".into(),
+                summary_index: 0
+            }
+        ));
     }
 
     #[test]
