@@ -33,6 +33,15 @@ runs:
         sudo rm -rf -- /usr/local/lib/android/sdk /usr/local/.ghcup
         df -h "$RUNNER_TEMP"
 
+    - name: Free space for macOS Bazel outputs
+      if: inputs.reclaim-disk-space == 'true' && runner.os == 'macOS' && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        # Match the macOS nextest archive job's hosted-image preparation.
+        df -h "$RUNNER_TEMP"
+        sudo rm -rf -- /Users/runner/Library/Android/sdk
+        df -h "$RUNNER_TEMP"
+
     - id: setup_ci
       uses: ./.github/actions/setup-ci
 
