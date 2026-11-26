@@ -7,6 +7,15 @@ on:
   push:
     branches: [main]
 
+# A new push to a pull request cancels that PR's earlier run, which otherwise kept
+# billing paid large runners (macos-15-xlarge) to completion. Pushes to main each
+# keep their own group, so post-merge runs are never cancelled. The group name
+# must differ from the one bazel.yml derives from this workflow's name, or the
+# caller and the called workflow would compete for one group.
+concurrency:
+  group: blocking-ci-entry::${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}::{1}', github.ref_name, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Keep reusable workflow calls alphabetized. The `required` job below is the
   # version-controlled list that the main-branch ruleset should require.
