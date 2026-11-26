@@ -61,6 +61,8 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: ./.github/actions/prepare-macos-pty-tests
+
       - name: Prepare Bazel CI
         id: prepare_bazel
         uses: ./.github/actions/prepare-bazel-ci
