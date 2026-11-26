@@ -1550,8 +1550,10 @@ async fn thread_resume_preserves_goal_first_and_fork_approvals_reviewer() -> Res
     Ok(())
 }
 
+#[test_case(true; "planner still configured")]
+#[test_case(false; "planner removed between launches")]
 #[tokio::test]
-async fn plan_mode_model_cold_resume_retains_coding_selection() -> Result<()> {
+async fn plan_mode_model_cold_resume_retains_coding_selection(keep_planner: bool) -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;
     let home = TempDir::new()?;
     let plan_model = "gpt-6.2-astra";
@@ -1598,6 +1600,9 @@ async fn plan_mode_model_cold_resume_retains_coding_selection() -> Result<()> {
             .await?;
         thread.id
     };
+    if !keep_planner {
+        mock_responses_config(&server.uri()).write(home.path())?;
+    }
     let mut client = TestAppServer::builder()
         .with_codex_home(home.path())
         .build_initialized()
@@ -1627,7 +1632,7 @@ async fn plan_mode_model_cold_resume_retains_coding_selection() -> Result<()> {
         vec![
             json!(plan_model),
             json!(plan_model),
-            json!(plan_model),
+            json!(if keep_planner { plan_model } else { base_model }),
             json!(base_model)
         ]
     );

@@ -4355,7 +4355,6 @@ impl ThreadRequestProcessor {
         // Turn metadata records the actual planner. On cold resume restore the
         // owner's saved thread selection so leaving Plan Mode recovers it.
         if !has_explicit_model_resume_override
-            && config.plan_mode_model.is_some()
             && let Some(saved) = history_settings
             && saved.collaboration_mode.mode == codex_protocol::config_types::ModeKind::Plan
         {
