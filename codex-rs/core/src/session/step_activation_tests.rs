@@ -426,6 +426,13 @@ struct ActivationFixture {
 }
 
 async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
+    activation_fixture_with_planner(models, false).await
+}
+
+async fn activation_fixture_with_planner(
+    models: Vec<ModelInfo>,
+    plan_mode: bool,
+) -> ActivationFixture {
     let (session, _) = make_session_and_context().await;
     let mut session = Arc::new(session);
     let mutable = Arc::get_mut(&mut session).expect("unshared test session");
@@ -452,6 +459,10 @@ async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
         Some(Some(ReasoningEffort::Low)),
         /*developer_instructions*/ None,
     );
+    if plan_mode {
+        settings.collaboration_mode.mode = codex_protocol::config_types::ModeKind::Plan;
+        config.plan_mode_model = Some(MODEL_A.to_string());
+    }
     settings.reasoning_summary = Some(ReasoningSummary::Concise);
     settings.service_tier = None;
     let prepared = session
@@ -475,6 +486,51 @@ async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
         finish,
         lookup,
     }
+}
+
+#[tokio::test]
+async fn plan_mode_model_normalizes_initial_and_live_effort_against_pinned_model() {
+    let mut models = activation_models();
+    let planner = models.iter_mut().find(|m| m.slug == MODEL_A).unwrap();
+    planner.default_reasoning_level = Some(ReasoningEffort::Medium);
+    planner.supported_reasoning_levels.retain(|level| {
+        matches!(
+            level.effort,
+            ReasoningEffort::Medium | ReasoningEffort::High
+        )
+    });
+    let ActivationFixture {
+        session,
+        turn,
+        finish,
+        ..
+    } = activation_fixture_with_planner(models, true).await;
+    assert_eq!(turn.reasoning_effort(), Some(&ReasoningEffort::Medium));
+    assert_eq!(
+        session
+            .apply_turn_settings(
+                &turn.sub_id,
+                TurnSettingsUpdate {
+                    effort: Some(Some(ReasoningEffort::XHigh)),
+                    ..Default::default()
+                }
+            )
+            .await,
+        TurnSettingsUpdateOutcome::Applied
+    );
+    assert_eq!(
+        turn.next_step_settings.load().reasoning_effort(),
+        Some(&ReasoningEffort::High)
+    );
+    assert_eq!(turn.reasoning_effort(), Some(&ReasoningEffort::Medium));
+    assert_eq!(
+        desired_step_settings(&session)
+            .await
+            .collaboration_mode
+            .reasoning_effort(),
+        Some(ReasoningEffort::Low)
+    );
+    finish.notify_one();
 }
 
 fn step_values(

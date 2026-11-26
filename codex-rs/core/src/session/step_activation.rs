@@ -441,14 +441,14 @@ impl Session {
             ),
         };
         let mut update = update.clone();
-        if let Some(model) = plan_model {
+        if let Some(model) = &plan_model {
             if let Some(mode) = &mut update.collaboration_mode {
-                mode.settings.model = model;
+                mode.settings.model.clone_from(model);
             } else {
-                update.model = Some(model);
+                update.model = Some(model.clone());
             }
         }
-        current
+        let mut resolved = current
             .apply_update(
                 &update,
                 &constraints,
@@ -457,7 +457,11 @@ impl Session {
                 &self.features,
             )
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        if plan_model.is_some() {
+            resolved.normalize_planner_effort();
+        }
+        Ok(resolved)
     }
 
     /// Rechecks ordinary managed authorization after asynchronous resolution.
