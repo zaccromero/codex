@@ -420,23 +420,32 @@ impl SessionConfiguration {
 
     /// Resolve the request model on a copy. Persisting the client selection lets
     /// resumed chats leave Plan Mode and recover the original coding model.
-    pub(super) fn for_model_turn(&self) -> ConstraintResult<Self> {
-        let Some(model) = self.planning_model(self.step_settings.collaboration_mode.mode) else {
-            return Ok(self.clone());
-        };
-        if model == self.step_settings.collaboration_mode.model() {
-            return Ok(self.clone());
-        }
-        self.apply(
-            &SessionSettingsUpdate {
-                step_settings: StepSettingsUpdate {
-                    model: Some(model.to_string()),
+    pub(super) fn for_model_turn(
+        &mut self,
+        catalog: Option<&[ModelInfo]>,
+    ) -> ConstraintResult<Self> {
+        if let Some(model) = self.planning_model(self.step_settings.collaboration_mode.mode)
+            && model != self.step_settings.collaboration_mode.model()
+        {
+            let mut turn = self.apply(
+                &SessionSettingsUpdate {
+                    step_settings: StepSettingsUpdate {
+                        model: Some(model.to_string()),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
-                ..Default::default()
-            },
-            &self.environments,
-        )
+                &self.environments,
+            )?;
+            if let Some(catalog) = catalog {
+                model_catalog_settings::normalize(&mut turn.step_settings, catalog);
+            }
+            return Ok(turn);
+        }
+        if let Some(catalog) = catalog {
+            model_catalog_settings::normalize(&mut self.step_settings, catalog);
+        }
+        Ok(self.clone())
     }
 
     pub(super) fn planning_model(&self, mode: ModeKind) -> Option<&str> {

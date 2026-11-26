@@ -1551,6 +1551,90 @@ async fn thread_resume_preserves_goal_first_and_fork_approvals_reviewer() -> Res
 }
 
 #[tokio::test]
+async fn plan_mode_model_cold_resume_retains_coding_selection() -> Result<()> {
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let home = TempDir::new()?;
+    let plan_model = "gpt-6.2-astra";
+    let base_model = "gpt-5.4";
+    mock_responses_config(&server.uri())
+        .with_root_config("plan_mode_model = \"gpt-6.2-astra\"")
+        .write(home.path())?;
+    let mode = |kind| CollaborationMode {
+        mode: kind,
+        settings: Settings {
+            model: base_model.to_string(),
+            reasoning_effort: None,
+            developer_instructions: None,
+        },
+    };
+    let turn = |thread_id: &str, collaboration_mode| TurnStartParams {
+        thread_id: thread_id.to_string(),
+        collaboration_mode,
+        input: vec![UserInput::Text {
+            text: "Check this plan".into(),
+            text_elements: vec![],
+        }],
+        ..Default::default()
+    };
+    let id = {
+        let mut client = TestAppServer::builder()
+            .with_codex_home(home.path())
+            .build_initialized()
+            .await?;
+        let start_id = client
+            .send_thread_start_request_with_auto_env(ThreadStartParams {
+                model: Some(base_model.into()),
+                history_mode: Some(ThreadHistoryMode::Legacy),
+                ..Default::default()
+            })
+            .await?;
+        let ThreadStartResponse { thread, .. } =
+            timeout(DEFAULT_READ_TIMEOUT, client.read_response(start_id)).await??;
+        client
+            .start_turn_and_wait_for_completion(turn(&thread.id, Some(mode(ModeKind::Plan))))
+            .await?;
+        client
+            .start_turn_and_wait_for_completion(turn(&thread.id, None))
+            .await?;
+        thread.id
+    };
+    let mut client = TestAppServer::builder()
+        .with_codex_home(home.path())
+        .build_initialized()
+        .await?;
+    let resume = client
+        .send_thread_resume_request(ThreadResumeParams {
+            thread_id: id.clone(),
+            ..Default::default()
+        })
+        .await?;
+    let ThreadResumeResponse { model, .. } =
+        timeout(DEFAULT_READ_TIMEOUT, client.read_response(resume)).await??;
+    assert_eq!(model, base_model);
+    client
+        .start_turn_and_wait_for_completion(turn(&id, None))
+        .await?;
+    client
+        .start_turn_and_wait_for_completion(turn(&id, Some(mode(ModeKind::Default))))
+        .await?;
+    let requests = responses::received_responses_requests(&server).await;
+    let models: Vec<_> = requests
+        .iter()
+        .map(|request| request.body_json()["model"].clone())
+        .collect();
+    assert_eq!(
+        models,
+        vec![
+            json!(plan_model),
+            json!(plan_model),
+            json!(plan_model),
+            json!(base_model)
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn thread_resume_preserves_acknowledged_model_effort_and_approvals_reviewer_update()
 -> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("Done").await;

@@ -64,3 +64,35 @@ async fn correction_changes_only_supported_bounded_choices(scenario: &str) {
     normalize(&mut settings, &[model]);
     assert_eq!(settings, expected);
 }
+
+#[tokio::test]
+async fn plan_mode_model_effort_uses_planner_catalog_for_each_turn() {
+    let mut config = make_session_configuration_for_tests().await;
+    let mut coding = bundled_models_response().unwrap().models.remove(0);
+    let mut planner = coding.clone();
+    coding.slug = config.step_settings.collaboration_mode.model().to_string();
+    planner.slug = "planner".into();
+    let level = |effort: ReasoningEffort| ReasoningEffortPreset {
+        description: effort.to_string(),
+        effort,
+    };
+    coding.supported_reasoning_levels = vec![level(ReasoningEffort::Low)];
+    planner.supported_reasoning_levels = vec![level(ReasoningEffort::High)];
+    let mode = &mut Arc::make_mut(&mut config.step_settings).collaboration_mode;
+    mode.mode = codex_protocol::config_types::ModeKind::Plan;
+    mode.settings.reasoning_effort = Some(ReasoningEffort::XHigh);
+    Arc::make_mut(&mut config.original_config_do_not_use).plan_mode_model =
+        Some(planner.slug.clone());
+    let catalog = [coding, planner];
+    for _ in 0..2 {
+        let turn = config.for_model_turn(Some(&catalog)).unwrap();
+        assert_eq!(
+            turn.step_settings.collaboration_mode.reasoning_effort(),
+            Some(ReasoningEffort::High)
+        );
+        assert_eq!(
+            config.step_settings.collaboration_mode.reasoning_effort(),
+            Some(ReasoningEffort::XHigh)
+        );
+    }
+}

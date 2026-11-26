@@ -2196,15 +2196,13 @@ impl Session {
                     }
                 };
 
-            if let Some(catalog) = self.services.models_manager.refreshed_model_catalog() {
-                model_catalog_settings::normalize(&mut updated.step_settings, &catalog);
-            }
+            let catalog = self.services.models_manager.refreshed_model_catalog();
+            let turn_configuration = updated.for_model_turn(catalog.as_deref())?;
 
             if !should_commit(&state.session_configuration, &updated) {
                 return Ok(None);
             }
 
-            let turn_configuration = updated.for_model_turn()?;
             let credential_masking_warning = updated
                 .original_config_do_not_use
                 .credential_masking_warning(&updated.permission_profile())
