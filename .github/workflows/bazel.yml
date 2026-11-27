@@ -367,19 +367,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04]
+        target: [x86_64-unknown-linux-gnu]
+        shard: [1, 2, 3, 4]
         include:
-          # Keep Linux lint coverage on x64 and add the arm64 macOS path that
-          # the Bazel test job already exercises. Add Windows gnullvm as well
-          # so PRs get Bazel-native lint signal on the same Windows toolchain
-          # that the Bazel test job uses.
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
           - os: macos-15
             target: aarch64-apple-darwin
+            shard: 0
           - os: windows-latest
             target: x86_64-pc-windows-gnullvm
+            shard: 0
     runs-on: ${{ matrix.os }}
-    name: Bazel clippy on ${{ matrix.os }} for ${{ matrix.target }}
+    name: Bazel clippy on ${{ matrix.os }} for ${{ matrix.target }}${{ matrix.shard && format(' shard {0}/4', matrix.shard) || '' }}
     environment:
       name: bazel
       deployment: false
@@ -395,6 +394,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           cache-scope: bazel-${{ github.job }}
+          reclaim-disk-space: "true"
 
       - name: Prepare native Windows audio dependencies
         if: runner.os == 'Windows'
@@ -411,6 +411,9 @@ jobs:
           echo "CODEX_COMPAT_RELEASES=$releases" >> "$GITHUB_ENV"
 
       - name: bazel build --config=clippy lint targets
+        env:
+          BAZEL_PACKAGE_SHARD: ${{ matrix.shard }}
+          BAZEL_PACKAGE_SHARD_COUNT: 4
         shell: bash
         run: |
           bazel_clippy_args=(
@@ -446,14 +449,14 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: bazel-execution-logs-clippy-${{ matrix.target }}
+          name: bazel-execution-logs-clippy-${{ matrix.target }}${{ matrix.shard && format('-{0}', matrix.shard) || '' }}
           path: ${{ runner.temp }}/bazel-execution-logs
           if-no-files-found: ignore
 
       # Save the job-scoped Bazel repository cache after cache misses. Keep the
       # upload non-fatal so cache service issues never fail the job itself.
       - name: Save bazel repository cache
-        if: always() && !cancelled() && steps.prepare_bazel.outputs.repository-cache-hit != 'true'
+        if: always() && !cancelled() && matrix.shard <= 1 && steps.prepare_bazel.outputs.repository-cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:

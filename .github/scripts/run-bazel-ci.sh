@@ -234,8 +234,8 @@ if [[ ${#bazel_args[@]} -eq 0 || ${#bazel_targets[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# These jobs start with a single recursive package pattern, followed by
-# exclusions. Keep those flags and narrow the pattern to this runner's share.
+# These jobs start with a recursive package pattern. Keep the caller's
+# exclusions and explicit targets, then narrow them to this runner's share.
 if [[ "${BAZEL_PACKAGE_SHARD:-0}" != "0" ]]; then
   script_dir="$(dirname "${BASH_SOURCE[0]}")"
   # A file named "all" also shadows its package wildcard. Include those
