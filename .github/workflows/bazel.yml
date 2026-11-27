@@ -32,18 +32,29 @@ jobs:
         os: [ubuntu-24.04]
         target: [x86_64-unknown-linux-gnu, x86_64-unknown-linux-musl]
         shard: [1, 2, 3, 4]
+        shard_count: [4]
         include:
           - os: macos-15
             target: aarch64-apple-darwin
-            shard: 0
+            shard: 1
+            shard_count: 2
+          - os: macos-15
+            target: aarch64-apple-darwin
+            shard: 2
+            shard_count: 2
           - os: macos-15
             target: x86_64-apple-darwin
-            shard: 0
+            shard: 1
+            shard_count: 2
+          - os: macos-15
+            target: x86_64-apple-darwin
+            shard: 2
+            shard_count: 2
 
     runs-on: ${{ matrix.os }}
 
     # Configure a human readable name for each job
-    name: Bazel test on ${{ matrix.os }} for ${{ matrix.target }}${{ matrix.shard && format(' shard {0}/4', matrix.shard) || '' }}
+    name: Bazel test on ${{ matrix.os }} for ${{ matrix.target }} shard ${{ matrix.shard }}/${{ matrix.shard_count }}
     environment:
       name: bazel
       deployment: false
@@ -87,7 +98,7 @@ jobs:
         shell: bash
         env:
           BAZEL_PACKAGE_SHARD: ${{ matrix.shard }}
-          BAZEL_PACKAGE_SHARD_COUNT: 4
+          BAZEL_PACKAGE_SHARD_COUNT: ${{ matrix.shard_count }}
         run: |
           set -euo pipefail
           bazel_targets=(
@@ -464,15 +475,21 @@ jobs:
         os: [ubuntu-24.04]
         target: [x86_64-unknown-linux-gnu]
         shard: [1, 2, 3, 4]
+        shard_count: [4]
         include:
           - os: macos-15
             target: aarch64-apple-darwin
-            shard: 0
+            shard: 1
+            shard_count: 2
+          - os: macos-15
+            target: aarch64-apple-darwin
+            shard: 2
+            shard_count: 2
           - os: windows-latest
             target: x86_64-pc-windows-gnullvm
             shard: 0
     runs-on: ${{ matrix.os }}
-    name: Verify release build on ${{ matrix.os }} for ${{ matrix.target }}${{ matrix.shard && format(' shard {0}/4', matrix.shard) || '' }}
+    name: Verify release build on ${{ matrix.os }} for ${{ matrix.target }}${{ matrix.shard && format(' shard {0}/{1}', matrix.shard, matrix.shard_count) || '' }}
     environment:
       name: bazel
       deployment: false
@@ -507,7 +524,7 @@ jobs:
       - name: bazel build verify-release-build targets
         env:
           BAZEL_PACKAGE_SHARD: ${{ matrix.shard }}
-          BAZEL_PACKAGE_SHARD_COUNT: 4
+          BAZEL_PACKAGE_SHARD_COUNT: ${{ matrix.shard_count }}
         shell: bash
         run: |
           # This job exists to compile Rust code behind
