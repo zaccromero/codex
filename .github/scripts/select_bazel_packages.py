@@ -27,7 +27,7 @@ def exclusions_for_shard(labels: list[str], shard: int, count: int) -> list[str]
     exclusions = []
     for package in sorted(packages.keys() - selected):
         wildcard = f"{package}:all"
-        # An explicit rule named "all" takes precedence over the wildcard.
+        # An explicit target named "all" takes precedence over the wildcard.
         if wildcard in packages[package]:
             exclusions.extend(sorted(packages[package]))
         else:

@@ -238,8 +238,11 @@ fi
 # exclusions. Keep those flags and narrow the pattern to this runner's share.
 if [[ "${BAZEL_PACKAGE_SHARD:-0}" != "0" ]]; then
   script_dir="$(dirname "${BASH_SOURCE[0]}")"
+  # A file named "all" also shadows its package wildcard. Include those
+  # labels without using source-file counts to weight the shards.
+  scope=${bazel_targets[0]}
   package_exclusions="$(
-    "$script_dir/run-bazel-query-ci.sh" --output=label -- "${bazel_targets[0]}" \
+    "$script_dir/run-bazel-query-ci.sh" --output=label -- "$scope union filter(':all$', $scope:*)" \
       | python3 "$script_dir/select_bazel_packages.py" --shard "$BAZEL_PACKAGE_SHARD" --count "${BAZEL_PACKAGE_SHARD_COUNT:?}"
   )"
   while IFS= read -r exclusion; do
