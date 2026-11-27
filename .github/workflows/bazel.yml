@@ -352,7 +352,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 300 || 180 }}
+    timeout-minutes: ${{ matrix.os == 'macos-15' && 180 || 300 }}
     strategy:
       fail-fast: false
       matrix:
@@ -457,7 +457,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: ${{ matrix.os == 'macos-15' && 300 || 180 }}
+    timeout-minutes: ${{ matrix.os == 'ubuntu-24.04' && 180 || 300 }}
     strategy:
       fail-fast: false
       matrix:
