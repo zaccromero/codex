@@ -26,7 +26,9 @@ class BazelPackageShardTest(unittest.TestCase):
                     removed.add(pattern)
                 else:
                     prefix = pattern.removesuffix(":all") + ":"
-                    removed.update(label for label in labels if label.startswith(prefix))
+                    removed.update(
+                        label for label in labels if label.startswith(prefix)
+                    )
             kept.update(set(labels) - removed)
         self.assertEqual(kept, Counter(labels))
 
