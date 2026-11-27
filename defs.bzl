@@ -226,7 +226,8 @@ def codex_rust_crate(
         unit_test_timeout = None,
         extra_binaries = [],
         extra_binaries_non_windows = [],
-        run_tests_with_wine_exec = False):
+        run_tests_with_wine_exec = False,
+        integration_test_tags = {}):
     """Defines a Rust crate with library, binaries, and tests wired for Bazel + Cargo parity.
 
     The macro mirrors Cargo conventions: it builds a library when `src/` exists,
@@ -295,6 +296,7 @@ def codex_rust_crate(
         run_tests_with_wine_exec: Boolean, defaults to False. Whether to emit a
             Wine-exec variant for each integration test. Variants inherit the
             native test's timeout, tags, and shard count.
+        integration_test_tags: Additional tags keyed by the generated native integration test name.
     """
     test_env = {
         # The launcher resolves an absolute workspace root at runtime so
@@ -567,6 +569,7 @@ def codex_rust_crate(
         if not test_name.endswith("-test"):
             test_name += "-test"
         windows_cross_test_binary = test_name + "-windows-cross-bin"
+        integration_tags = test_tags + integration_test_tags.get(test_name, [])
 
         test_kwargs = {}
         test_kwargs.update(integration_test_kwargs)
@@ -620,7 +623,7 @@ def codex_rust_crate(
                 ],
                 rustc_env = test_rustc_env,
                 target_compatible_with = WINDOWS_GNULLVM_INCOMPATIBLE,
-                tags = test_tags + ["manual"],
+                tags = integration_tags + ["manual"],
                 version = crate_version,
             )
 
@@ -636,7 +639,7 @@ def codex_rust_crate(
                 test_threads = test_threads,
                 workspace_root_marker = "//codex-rs/utils/cargo-bin:repo_root.marker",
                 target_compatible_with = WINDOWS_GNULLVM_INCOMPATIBLE,
-                tags = test_tags,
+                tags = integration_tags,
                 **test_kwargs
             )
         else:
@@ -662,7 +665,7 @@ def codex_rust_crate(
                 rustc_env = test_rustc_env,
                 env = integration_test_cargo_env,
                 target_compatible_with = WINDOWS_GNULLVM_INCOMPATIBLE,
-                tags = test_tags,
+                tags = integration_tags,
                 version = crate_version,
                 **test_kwargs
             )
@@ -710,7 +713,7 @@ def codex_rust_crate(
                 target_compatible_with = WINE_TEST_TARGET_COMPATIBLE_WITH,
                 # This wrapper has no Rust sources and transitions a data
                 # dependency to a Windows toolchain the lint does not register.
-                tags = test_tags + ["no-argument-comment-lint"],
+                tags = integration_tags + ["no-argument-comment-lint"],
                 **wine_test_kwargs
             )
 
@@ -735,7 +738,7 @@ def codex_rust_crate(
             rustc_env = test_rustc_env,
             env = integration_test_cargo_env,
             target_compatible_with = WINDOWS_GNULLVM_ONLY,
-            tags = test_tags + ["manual"],
+            tags = integration_tags + ["manual"],
             version = crate_version,
         )
 
@@ -747,7 +750,7 @@ def codex_rust_crate(
             test_bin = ":" + windows_cross_test_binary,
             workspace_root_marker = "//codex-rs/utils/cargo-bin:repo_root.marker",
             target_compatible_with = WINDOWS_GNULLVM_ONLY,
-            tags = test_tags,
+            tags = integration_tags,
             **windows_cross_test_kwargs
         )
 

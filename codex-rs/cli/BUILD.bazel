@@ -13,6 +13,13 @@ codex_rust_crate(
     extra_binaries = [
         "//codex-rs/bwrap:bwrap",
     ],
+    # These suites run several CLI and daemon processes with live readiness deadlines.
+    integration_test_tags = {
+        "cli-app_server_daemon-test": ["cpu:4"],
+        "cli-daemon_startup-test": ["cpu:4"],
+        "cli-exec_server-test": ["cpu:4"],
+        "cli-worktree-test": ["cpu:4"],
+    },
     rustc_flags_extra = MACOS_WEBRTC_RUSTC_LINK_FLAGS,
     test_data_extra = glob(["src/**/snapshots/**"]),
 )
