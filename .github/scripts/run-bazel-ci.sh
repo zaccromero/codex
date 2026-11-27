@@ -234,6 +234,21 @@ if [[ ${#bazel_args[@]} -eq 0 || ${#bazel_targets[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# These jobs start with a single recursive package pattern, followed by
+# exclusions. Keep those flags and narrow the pattern to this runner's share.
+if [[ "${BAZEL_PACKAGE_SHARD:-0}" != "0" ]]; then
+  script_dir="$(dirname "${BASH_SOURCE[0]}")"
+  package_exclusions="$(
+    "$script_dir/run-bazel-query-ci.sh" --output=label -- "${bazel_targets[0]}" \
+      | python3 "$script_dir/select_bazel_packages.py" --shard "$BAZEL_PACKAGE_SHARD" --count "${BAZEL_PACKAGE_SHARD_COUNT:?}"
+  )"
+  while IFS= read -r exclusion; do
+    if [[ -n "$exclusion" ]]; then
+      bazel_targets+=("-$exclusion")
+    fi
+  done <<< "$package_exclusions"
+fi
+
 if [[ "${RUNNER_OS:-}" == "Windows" && $windows_cross_compile -eq 1 ]]; then
   # Run Windows actions with the native MSVC host platform.
   windows_msvc_host_platform=1
