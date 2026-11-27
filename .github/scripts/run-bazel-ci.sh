@@ -284,8 +284,12 @@ fi
 
 
 if [[ "${RUNNER_OS:-}" == "Windows" && $windows_cross_compile -eq 1 ]]; then
-  # Bound concurrent native Windows actions to fit the runner.
-  post_config_bazel_args+=(--jobs=8)
+  windows_jobs=8
+  # Concurrent Rust test binary builds can exhaust a hosted runner's memory.
+  if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && "${bazel_args[0]}" == "test" ]]; then
+    windows_jobs=4
+  fi
+  post_config_bazel_args+=("--jobs=$windows_jobs")
 fi
 
 if [[ -n "${BAZEL_REPO_CONTENTS_CACHE:-}" ]]; then
