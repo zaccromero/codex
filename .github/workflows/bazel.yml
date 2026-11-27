@@ -25,7 +25,7 @@ jobs:
     # PRs use the sharded Windows cross-compiled test jobs below. Post-merge
     # pushes to main also run the native Windows test job for broader Windows
     # signal without putting PR latency back on the critical path.
-    timeout-minutes: 240
+    timeout-minutes: ${{ matrix.os == 'macos-15' && 300 || 240 }}
     strategy:
       fail-fast: false
       matrix:
