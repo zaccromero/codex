@@ -363,7 +363,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: ${{ matrix.os == 'macos-15' && 180 || 300 }}
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
