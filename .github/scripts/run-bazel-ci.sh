@@ -290,6 +290,11 @@ if [[ "${RUNNER_OS:-}" == "Windows" && $windows_cross_compile -eq 1 ]]; then
   hosted_processors=${NUMBER_OF_PROCESSORS:-4}
   if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && "$hosted_processors" == [1-7] ]]; then
     windows_jobs=$hosted_processors
+    # Test runs overlap Rust compilation with test processes. On the four-core
+    # runner, four concurrent actions exhausted the Windows commit limit.
+    if [[ "${bazel_args[0]}" == "test" && $windows_jobs -gt 1 ]]; then
+      windows_jobs=$((windows_jobs - 1))
+    fi
   fi
   post_config_bazel_args+=("--jobs=$windows_jobs")
 fi
