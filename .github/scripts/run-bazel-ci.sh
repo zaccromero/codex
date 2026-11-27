@@ -285,9 +285,11 @@ fi
 
 if [[ "${RUNNER_OS:-}" == "Windows" && $windows_cross_compile -eq 1 ]]; then
   windows_jobs=8
-  # Concurrent Rust test binary builds can exhaust a hosted runner's memory.
-  if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && "${bazel_args[0]}" == "test" ]]; then
-    windows_jobs=4
+  # Large Rust binaries are built for tests, Clippy, and release verification.
+  # Limit overlapping builds on the smaller standard hosted Windows machines.
+  hosted_processors=${NUMBER_OF_PROCESSORS:-4}
+  if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && "$hosted_processors" == [1-7] ]]; then
+    windows_jobs=$hosted_processors
   fi
   post_config_bazel_args+=("--jobs=$windows_jobs")
 fi
