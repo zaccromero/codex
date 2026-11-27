@@ -44,7 +44,7 @@ jobs:
     # Keep the Bazel CLI build advisory until the public build and cache rollout is verified.
     continue-on-error: true
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     environment:
       name: bazel
       deployment: false
