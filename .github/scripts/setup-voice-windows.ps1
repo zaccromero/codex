@@ -40,7 +40,7 @@ $Inputs = @(
 )
 foreach ($InputFile in $Inputs) {
     $Destination = Join-Path $Root $InputFile.file
-    Invoke-WebRequest -Uri $InputFile.url -OutFile $Destination
+    Invoke-WebRequest -Uri $InputFile.url -OutFile $Destination -MaximumRetryCount 3 -RetryIntervalSec 5
     $Actual = (Get-FileHash -Path $Destination -Algorithm $InputFile.algorithm).Hash.ToLowerInvariant()
     if ($Actual -ne $InputFile.digest) { throw "Build input digest mismatch: $($InputFile.file)" }
 }
