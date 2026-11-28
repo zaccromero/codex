@@ -370,15 +370,21 @@ jobs:
         os: [ubuntu-24.04]
         target: [x86_64-unknown-linux-gnu]
         shard: [1, 2, 3, 4]
+        shard_count: [4]
         include:
           - os: macos-15
             target: aarch64-apple-darwin
-            shard: 0
+            shard: 1
+            shard_count: 2
+          - os: macos-15
+            target: aarch64-apple-darwin
+            shard: 2
+            shard_count: 2
           - os: windows-latest
             target: x86_64-pc-windows-gnullvm
             shard: 0
     runs-on: ${{ matrix.os }}
-    name: Bazel clippy on ${{ matrix.os }} for ${{ matrix.target }}${{ matrix.shard && format(' shard {0}/4', matrix.shard) || '' }}
+    name: Bazel clippy on ${{ matrix.os }} for ${{ matrix.target }}${{ matrix.shard && format(' shard {0}/{1}', matrix.shard, matrix.shard_count) || '' }}
     environment:
       name: bazel
       deployment: false
@@ -413,7 +419,7 @@ jobs:
       - name: bazel build --config=clippy lint targets
         env:
           BAZEL_PACKAGE_SHARD: ${{ matrix.shard }}
-          BAZEL_PACKAGE_SHARD_COUNT: 4
+          BAZEL_PACKAGE_SHARD_COUNT: ${{ matrix.shard_count }}
         shell: bash
         run: |
           bazel_clippy_args=(
