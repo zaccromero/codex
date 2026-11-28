@@ -7,6 +7,9 @@ inputs:
   cache-scope:
     description: Logical namespace used to keep concurrent Bazel jobs from reserving the same repository cache key.
     required: true
+  reclaim-disk-space:
+    description: Free space for large Bazel outputs on standard hosted runners.
+    default: "false"
 outputs:
   repository-cache-path:
     description: Filesystem path used for the Bazel repository cache.
@@ -21,6 +24,24 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Free space for Linux Bazel outputs
+      if: inputs.reclaim-disk-space == 'true' && runner.os == 'Linux' && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        # Linux builds use neither the hosted image's Android SDK nor GHC.
+        df -h "$RUNNER_TEMP"
+        sudo rm -rf -- /usr/local/lib/android/sdk /usr/local/.ghcup
+        df -h "$RUNNER_TEMP"
+
+    - name: Free space for macOS Bazel outputs
+      if: inputs.reclaim-disk-space == 'true' && runner.os == 'macOS' && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        # Match the macOS nextest archive job's hosted-image preparation.
+        df -h "$RUNNER_TEMP"
+        sudo rm -rf -- /Users/runner/Library/Android/sdk
+        df -h "$RUNNER_TEMP"
+
     - id: setup_ci
       uses: ./.github/actions/setup-ci
 

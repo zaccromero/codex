@@ -901,10 +901,12 @@ fn legacy_workspace_write_delete_is_limited_to_writable_roots() {
                 workspace_file.exists(),
                 temp_file.exists(),
                 tmp_file.exists(),
-                fs::read_to_string(&outside_file).ok(),
-                protected_git_dir.is_dir(),
+                fs::read_to_string(&outside_file).map_err(|err| err.kind()),
+                fs::metadata(&protected_git_dir)
+                    .map(|metadata| metadata.is_dir())
+                    .map_err(|err| err.kind()),
             ),
-            (0, false, false, false, Some("outside".to_string()), true),
+            (0, false, false, false, Ok("outside".to_string()), Ok(true)),
             "stdout={stdout:?}\n{}",
             sandbox_log(codex_home.path())
         );

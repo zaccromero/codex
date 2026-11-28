@@ -94,6 +94,13 @@ impl ResolvedStepSettings {
             .cloned()
     }
 
+    pub(super) fn normalize_planner_effort(&mut self) {
+        super::model_catalog_settings::normalize_planner_effort(
+            &mut self.selected,
+            &self.model_info,
+        );
+    }
+
     pub(crate) fn effective_collaboration_mode(&self) -> CollaborationMode {
         let mut collaboration_mode = self.selected.collaboration_mode.clone();
         collaboration_mode.settings.model = self.model_info.slug.clone();

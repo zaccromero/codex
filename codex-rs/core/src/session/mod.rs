@@ -2196,9 +2196,8 @@ impl Session {
                     }
                 };
 
-            if let Some(catalog) = self.services.models_manager.refreshed_model_catalog() {
-                model_catalog_settings::normalize(&mut updated.step_settings, &catalog);
-            }
+            let catalog = self.services.models_manager.refreshed_model_catalog();
+            let turn_configuration = updated.for_model_turn(catalog.as_deref())?;
 
             if !should_commit(&state.session_configuration, &updated) {
                 return Ok(None);
@@ -2271,7 +2270,7 @@ impl Session {
             let new_config = notify_config_contributors
                 .then(|| self.build_effective_session_config(&state.session_configuration));
             let commit = SessionSettingsCommit {
-                configuration: state.session_configuration.clone(),
+                configuration: turn_configuration,
                 snapshot: state
                     .session_configuration
                     .thread_settings_snapshot(&state.session_configuration.environments),

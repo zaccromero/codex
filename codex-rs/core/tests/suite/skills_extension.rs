@@ -1561,6 +1561,25 @@ async fn opted_in_executor_provider_skips_host_discovery_but_injects_discovered_
         "executor-backed repo skills require matching host and executor path conventions"
     );
 
+    // Startup, turn construction, and capability discovery can span different
+    // runtime threads. Give just this test a process-wide tracing subscriber.
+    const CHILD_ENV: &str = "CODEX_EXECUTOR_SKILL_TRACE_TEST_SUBPROCESS";
+    const TEST_NAME: &str = "suite::skills_extension::opted_in_executor_provider_skips_host_discovery_but_injects_discovered_skill";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        let output = tokio::process::Command::new(std::env::current_exe()?)
+            .args(["--exact", TEST_NAME])
+            .env(CHILD_ENV, "1")
+            .output()
+            .await?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        anyhow::ensure!(
+            output.status.success() && stdout.contains("1 passed; 0 failed"),
+            "isolated test {TEST_NAME} failed\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Ok(());
+    }
+
     const AMBIENT_SKILL_NAME: &str = "ambient-repo";
     const AMBIENT_SKILL_BODY: &str = "AMBIENT_REPO_SKILL_SHOULD_NOT_BE_LOADED";
     const HOST_SKILL_NAME: &str = "ambient-home";
@@ -1576,7 +1595,7 @@ async fn opted_in_executor_provider_skips_host_discovery_but_injects_discovered_
         .with_span_events(FmtSpan::NEW)
         .with_writer(MockWriter::new(buffer))
         .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let server = responses::start_mock_server().await;
     let websocket_server = start_websocket_server(vec![vec![
@@ -1673,8 +1692,6 @@ async fn opted_in_executor_provider_skips_host_discovery_but_injects_discovered_
     let executor_thread = test
         .thread_manager
         .start_thread(StartThreadOptions {
-            // Keep the trace fixture's legacy mode: paginated SQLite workers can close
-            // spans through a different subscriber than this test's scoped collector.
             history_mode: Some(codex_protocol::protocol::ThreadHistoryMode::Legacy),
             environments: Some(vec![environment.clone().into_request()]),
             thread_extension_init,

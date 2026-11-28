@@ -73,6 +73,7 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::test_codex::turn_permission_fields;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
+use core_test_support::wait_for_successful_turn;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
@@ -808,7 +809,7 @@ async fn subagent_stop_replaces_stop_and_skips_internal_subagents() -> Result<()
     )
     .await;
 
-    let first_child_request = mount_sse_once_match(
+    mount_sse_once_match(
         &server,
         |req: &wiremock::Request| {
             body_contains(req, CHILD_PROMPT) && !body_contains(req, SPAWN_CALL_ID)
@@ -820,7 +821,7 @@ async fn subagent_stop_replaces_stop_and_skips_internal_subagents() -> Result<()
         ]),
     )
     .await;
-    let second_child_request = mount_sse_once_match(
+    mount_sse_once_match(
         &server,
         |req: &wiremock::Request| {
             body_contains(req, SUBAGENT_STOP_CONTINUATION) && !body_contains(req, SPAWN_CALL_ID)
@@ -873,16 +874,16 @@ async fn subagent_stop_replaces_stop_and_skips_internal_subagents() -> Result<()
         .build(&server)
         .await?;
 
+    let mut created_threads = test.thread_manager.subscribe_thread_created();
     test.submit_turn(TURN_1_PROMPT).await?;
-    let _ = wait_for_requests(&first_child_request).await?;
-    let _ = wait_for_requests(&second_child_request).await?;
+    let child_id = created_threads.try_recv().expect("spawn created a child");
+    let child = test.thread_manager.get_thread(child_id).await?;
+    // Stop hooks run after inference and can request another response. Wait for
+    // the child's whole turn before checking the results of both hook calls.
+    wait_for_successful_turn(child.as_ref()).await;
 
-    let subagent_stop_inputs = wait_for_hook_log(
-        test.codex_home_path(),
-        "subagent_stop_hook_log.jsonl",
-        /*expected_len*/ 2,
-    )
-    .await?;
+    let subagent_stop_inputs =
+        read_hook_log(test.codex_home_path(), "subagent_stop_hook_log.jsonl")?;
     assert_eq!(subagent_stop_inputs.len(), 2);
     assert_eq!(
         subagent_stop_inputs
@@ -913,6 +914,10 @@ async fn subagent_stop_replaces_stop_and_skips_internal_subagents() -> Result<()
     assert_eq!(
         subagent_stop_inputs[0]["last_assistant_message"].as_str(),
         Some("child done first")
+    );
+    assert_eq!(
+        subagent_stop_inputs[1]["last_assistant_message"].as_str(),
+        Some("child done final")
     );
 
     let stop_inputs = read_hook_log(test.codex_home_path(), "stop_hook_log.jsonl")?;

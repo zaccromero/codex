@@ -4352,6 +4352,17 @@ impl ThreadRequestProcessor {
         if clear_reasoning_effort {
             config.model_reasoning_effort = None;
         }
+        // Turn metadata records the actual planner. On cold resume restore the
+        // owner's saved thread selection so leaving Plan Mode recovers it.
+        if !has_explicit_model_resume_override
+            && let Some(saved) = history_settings
+            && saved.collaboration_mode.mode == codex_protocol::config_types::ModeKind::Plan
+        {
+            config.model = Some(saved.model.clone());
+            config
+                .model_reasoning_effort
+                .clone_from(&saved.reasoning_effort);
+        }
         if let Some(settings) = persisted_model_settings {
             if restore_service_tier {
                 config.service_tier.clone_from(&settings.service_tier);

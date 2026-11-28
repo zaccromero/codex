@@ -30,6 +30,20 @@ pub(super) fn normalize(settings: &mut Arc<StepSettings>, catalog: &[ModelInfo])
     else {
         return;
     };
+    normalize_effort(settings, model, /*planning*/ false);
+    if let Some(tier) = settings.service_tier.as_deref()
+        && matches!(tier, "priority" | "ultrafast")
+        && !model.supports_service_tier(tier)
+    {
+        Arc::make_mut(settings).service_tier = Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.into());
+    }
+}
+
+pub(super) fn normalize_planner_effort(settings: &mut Arc<StepSettings>, model: &ModelInfo) {
+    normalize_effort(settings, model, /*planning*/ true);
+}
+
+fn normalize_effort(settings: &mut Arc<StepSettings>, model: &ModelInfo, planning: bool) {
     let effort = settings.collaboration_mode.reasoning_effort();
     let allowed = &model.supported_reasoning_levels;
     if let Some(effort) = effort
@@ -49,10 +63,14 @@ pub(super) fn normalize(settings: &mut Arc<StepSettings>, catalog: &[ModelInfo])
                     .map(|(_, effort)| effort)
             })
             .or_else(|| {
-                matches!(effort, ReasoningEffort::Ultra | ReasoningEffort::Persistent)
-                    .then(|| model.default_reasoning_level.as_ref())
+                (planning || matches!(effort, ReasoningEffort::Ultra | ReasoningEffort::Persistent))
+                    .then_some(model.default_reasoning_level.as_ref())
                     .flatten()
                     .filter(|default| allowed.iter().any(|preset| &preset.effort == *default))
+            })
+            .or_else(|| {
+                // A switched planner may support no level at or below the coding effort.
+                planning.then(|| &allowed[0].effort)
             });
         if let Some(replacement) = replacement {
             Arc::make_mut(settings)
@@ -60,13 +78,6 @@ pub(super) fn normalize(settings: &mut Arc<StepSettings>, catalog: &[ModelInfo])
                 .settings
                 .reasoning_effort = Some(replacement.clone());
         }
-    }
-
-    if let Some(tier) = settings.service_tier.as_deref()
-        && matches!(tier, "priority" | "ultrafast")
-        && !model.supports_service_tier(tier)
-    {
-        Arc::make_mut(settings).service_tier = Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.into());
     }
 }
 

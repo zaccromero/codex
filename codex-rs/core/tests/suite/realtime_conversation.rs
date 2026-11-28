@@ -4990,30 +4990,33 @@ async fn inbound_handoff_request_starts_turn_and_promotes_its_artifact() -> Resu
     .await;
     assert_eq!(session_updated, "sess_inbound");
 
-    let _ = wait_for_event_match(&test.codex, |msg| match msg {
-        EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
-            payload: RealtimeEvent::HandoffRequested(handoff),
-        }) if handoff.handoff_id == "handoff_inbound"
-            && handoff.input_transcript == "text from realtime" =>
-        {
-            Some(())
-        }
-        _ => None,
-    })
-    .await;
-
-    let turn_id = loop {
-        let event = test.codex.next_event().await?;
-        if let EventMsg::TurnStarted(turn_started) = event.msg {
-            break turn_started.turn_id;
-        }
-    };
-    Uuid::parse_str(&turn_id).context("realtime-routed turn ID should be a UUID")?;
-
+    // Routing starts the turn before forwarding the handoff event. Either
+    // notification can reach the receiver first.
+    let mut saw_handoff = false;
+    let mut started_id = None;
+    let mut completed_id = None;
     wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::TurnComplete(_))
+        match event {
+            EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
+                payload: RealtimeEvent::HandoffRequested(handoff),
+            }) => {
+                assert_eq!(handoff.handoff_id, "handoff_inbound");
+                assert_eq!(handoff.input_transcript, "text from realtime");
+                saw_handoff = true;
+            }
+            EventMsg::TurnStarted(turn) => started_id = Some(turn.turn_id.clone()),
+            EventMsg::TurnComplete(turn) => {
+                assert!(turn.error.is_none(), "realtime turn failed: {turn:?}");
+                completed_id = Some(turn.turn_id.clone());
+            }
+            _ => {}
+        }
+        saw_handoff && started_id.is_some() && completed_id.is_some()
     })
     .await;
+    let turn_id = started_id.context("realtime turn should have started")?;
+    assert_eq!(completed_id.as_deref(), Some(turn_id.as_str()));
+    Uuid::parse_str(&turn_id).context("realtime-routed turn ID should be a UUID")?;
 
     test.thread_store
         .flush_thread(test.session_configured.thread_id)

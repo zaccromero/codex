@@ -287,6 +287,10 @@ async fn copy_file_transfers_between_local_and_foreign_executors() -> Result<()>
     Ok(())
 }
 
+// Each case starts multiple PowerShell hooks under the turn's event deadline.
+#[cfg(windows)]
+static WINDOWS_COPY_HOOK_CASES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
 #[test_case(false; "rewrite paths within the selected environments")]
 #[test_case(true; "reject swapping source and target")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -295,6 +299,9 @@ async fn copy_hooks_follow_source_and_target(swap_endpoints: bool) -> Result<()>
     use codex_protocol::models::PermissionProfileSnapshot;
     use codex_protocol::permissions::NetworkSandboxPolicy;
     use core_test_support::exec_server::ExecServerProcess;
+
+    #[cfg(windows)]
+    let _hook_case_permit = WINDOWS_COPY_HOOK_CASES.acquire().await?;
 
     let server = start_mock_server().await;
     let mut extensions = ExtensionRegistryBuilder::new();

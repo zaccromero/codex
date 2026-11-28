@@ -418,6 +418,44 @@ impl SessionConfiguration {
         }
     }
 
+    /// Resolve the request model on a copy. Persisting the client selection lets
+    /// resumed chats leave Plan Mode and recover the original coding model.
+    pub(super) fn for_model_turn(
+        &mut self,
+        catalog: Option<&[ModelInfo]>,
+    ) -> ConstraintResult<Self> {
+        if let Some(model) = self.planning_model(self.step_settings.collaboration_mode.mode)
+            && model != self.step_settings.collaboration_mode.model()
+        {
+            let mut turn = self.apply(
+                &SessionSettingsUpdate {
+                    step_settings: StepSettingsUpdate {
+                        model: Some(model.to_string()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &self.environments,
+            )?;
+            if let Some(catalog) = catalog {
+                model_catalog_settings::normalize(&mut turn.step_settings, catalog);
+            }
+            return Ok(turn);
+        }
+        if let Some(catalog) = catalog {
+            model_catalog_settings::normalize(&mut self.step_settings, catalog);
+        }
+        Ok(self.clone())
+    }
+
+    pub(super) fn planning_model(&self, mode: ModeKind) -> Option<&str> {
+        if mode == ModeKind::Plan && !self.root_capabilities_restricted {
+            self.original_config_do_not_use.plan_mode_model.as_deref()
+        } else {
+            None
+        }
+    }
+
     /// Applies fields normalized against this configuration at admission.
     pub(super) fn apply(
         &self,
@@ -1811,11 +1849,12 @@ impl Session {
             let mut account = crate::rollout_budget::ThreadBudgetAccount::Shared(Arc::clone(
                 &local_agent_runtime.rollout_budget,
             ));
-            if startup_error.is_none() && matches!(&agent_runtime, AgentRuntimeServices::Controller) {
-                if let Some(native) = agent_control.native_rollout_budget() {
-                    local_agent_runtime.rollout_budget = Arc::clone(&native);
-                    account = crate::rollout_budget::ThreadBudgetAccount::Native(native);
-                }
+            if startup_error.is_none()
+                && matches!(&agent_runtime, AgentRuntimeServices::Controller)
+                && let Some(native) = agent_control.native_rollout_budget()
+            {
+                local_agent_runtime.rollout_budget = Arc::clone(&native);
+                account = crate::rollout_budget::ThreadBudgetAccount::Native(native);
             }
             let budget_policy = crate::rollout_budget::ThreadBudgetPolicy::new(
                 account,

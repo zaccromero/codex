@@ -1,0 +1,15 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "cargo-deny",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^(?:.*\\[ERROR\\] |error(?:\\[([^\\]]+)\\])?: )(.+)$",
+          "code": 1,
+          "message": 2
+        }
+      ]
+    }
+  ]
+}

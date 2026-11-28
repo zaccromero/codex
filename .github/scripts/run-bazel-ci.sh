@@ -234,6 +234,24 @@ if [[ ${#bazel_args[@]} -eq 0 || ${#bazel_targets[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# These jobs start with a recursive package pattern. Keep the caller's
+# exclusions and explicit targets, then narrow them to this runner's share.
+if [[ "${BAZEL_PACKAGE_SHARD:-0}" != "0" ]]; then
+  script_dir="$(dirname "${BASH_SOURCE[0]}")"
+  # A file named "all" also shadows its package wildcard. Include those
+  # labels without using source-file counts to weight the shards.
+  scope=${bazel_targets[0]}
+  package_exclusions="$(
+    "$script_dir/run-bazel-query-ci.sh" --output=label -- "$scope union filter(':all$', $scope:*)" \
+      | python3 "$script_dir/select_bazel_packages.py" --shard "$BAZEL_PACKAGE_SHARD" --count "${BAZEL_PACKAGE_SHARD_COUNT:?}"
+  )"
+  while IFS= read -r exclusion; do
+    if [[ -n "$exclusion" ]]; then
+      bazel_targets+=("-$exclusion")
+    fi
+  done <<< "$package_exclusions"
+fi
+
 if [[ "${RUNNER_OS:-}" == "Windows" && $windows_cross_compile -eq 1 ]]; then
   # Run Windows actions with the native MSVC host platform.
   windows_msvc_host_platform=1
@@ -266,8 +284,19 @@ fi
 
 
 if [[ "${RUNNER_OS:-}" == "Windows" && $windows_cross_compile -eq 1 ]]; then
-  # Bound concurrent native Windows actions to fit the runner.
-  post_config_bazel_args+=(--jobs=8)
+  windows_jobs=8
+  # Large Rust binaries are built for tests, Clippy, and release verification.
+  # Limit overlapping builds on the smaller standard hosted Windows machines.
+  hosted_processors=${NUMBER_OF_PROCESSORS:-4}
+  if [[ "${RUNNER_ENVIRONMENT:-}" == "github-hosted" && "$hosted_processors" == [1-7] ]]; then
+    windows_jobs=$hosted_processors
+    # Test runs overlap Rust compilation with test processes. On the four-core
+    # runner, four concurrent actions exhausted the Windows commit limit.
+    if [[ "${bazel_args[0]}" == "test" && $windows_jobs -gt 1 ]]; then
+      windows_jobs=$((windows_jobs - 1))
+    fi
+  fi
+  post_config_bazel_args+=("--jobs=$windows_jobs")
 fi
 
 if [[ -n "${BAZEL_REPO_CONTENTS_CACHE:-}" ]]; then

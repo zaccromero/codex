@@ -20,11 +20,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1
 
+      - name: Annotate cargo-deny errors
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/cargo-deny-matcher.json"
+
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@82eb9f621fbc699dd0918f3ea06864c14cc84246 # v2
+        uses: EmbarkStudios/cargo-deny-action@81891abc19297b21343b15ef67dc61e4aea74fda # v2.1.4
         with:
           rust-version: 1.99.1
           manifest-path: ./codex-rs/Cargo.toml
+          arguments: --all-features --color never
 
       - name: Check for a clean worktree
         if: always() && !cancelled()

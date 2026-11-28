@@ -1322,13 +1322,27 @@ impl Session {
     async fn new_turn_context_from_configuration(
         &self,
         sub_id: String,
-        session_configuration: SessionConfiguration,
+        mut session_configuration: SessionConfiguration,
         turn_environments: TurnEnvironmentSnapshot,
         options: NewTurnContextOptions,
         build_mode: TurnContextBuildMode,
         git_enrichment_policy: GitEnrichmentPolicy,
     ) -> Arc<TurnContext> {
         let primary_turn_environment = turn_environments.primary();
+        let model_info = session_configuration
+            .step_settings
+            .resolve_model_info(
+                self.services.models_manager.as_ref(),
+                &session_configuration.model_info_overrides,
+            )
+            .await;
+        let selected = &session_configuration.step_settings.collaboration_mode;
+        if session_configuration.planning_model(selected.mode) == Some(selected.model()) {
+            model_catalog_settings::normalize_planner_effort(
+                &mut session_configuration.step_settings,
+                &model_info,
+            );
+        }
         let mut per_turn_config =
             self.build_per_turn_config(&session_configuration, turn_environments.local_selection());
         let overridden_direct_only_tool_namespaces =
@@ -1346,13 +1360,6 @@ impl Session {
             .map(TurnEnvironment::permission_profile)
             .cloned()
             .unwrap_or_else(|| session_configuration.permission_profile());
-        let model_info = session_configuration
-            .step_settings
-            .resolve_model_info(
-                self.services.models_manager.as_ref(),
-                &session_configuration.model_info_overrides,
-            )
-            .await;
         let multi_agent_version = match build_mode {
             TurnContextBuildMode::Full => {
                 // Only execution and initial context creation publish model metadata.

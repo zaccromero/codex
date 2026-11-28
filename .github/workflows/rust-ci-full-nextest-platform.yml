@@ -313,6 +313,8 @@ jobs:
 
       - uses: ./.github/actions/setup-ci
 
+      - uses: ./.github/actions/prepare-macos-pty-tests
+
       - name: Install Linux build dependencies
         if: ${{ runner.os == 'Linux' }}
         shell: bash
